@@ -2,10 +2,18 @@
 
 print(io::IO, x) = show(io, x)
 function print(io::IO, xs...)
-    lock(io) do io
+    if isdefined(io, :lock)
+        lock(io.lock)
+        try
+            for x in xs print(io, x) end
+        finally
+            unlock(io.lock)
+        end
+    else
         for x in xs print(io, x) end
     end
 end
+
 println(io::IO, xs...) = print(io, xs..., '\n')
 
 print(xs...)   = print(STDOUT, xs...)
