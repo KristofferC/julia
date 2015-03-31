@@ -1,20 +1,7 @@
 ## core text I/O ##
 
 print(io::IO, x) = show(io, x)
-stagedfunction print(io::IO, xs...)
-    if :lock in fieldnames(io)
-        quote
-            lock(io.lock)
-            try
-                for x in xs print(io, x) end
-            finally
-                unlock(io.lock)
-            end
-        end
-    else
-        :(for x in xs print(io, x) end)
-    end
-end
+print(io::IO, xs...) = for x in xs print(io, x) end
 
 println(io::IO, xs...) = print(io, xs..., '\n')
 

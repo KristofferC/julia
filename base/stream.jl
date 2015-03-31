@@ -220,6 +220,16 @@ nb_available(stream::UVStream) = nb_available(stream.buffer)
 show(io::IO,stream::TTY) = print(io,"TTY(",uv_status_string(stream),", ",
     nb_available(stream.buffer)," bytes waiting)")
 
+function println(io::AsyncStream, xs...)
+    lock(io.lock)
+    try
+        invoke(println, tuple(IO, typeof(xs)...), io, xs...)
+    finally
+        unlock(io.lock)
+    end
+end
+
+
 uvtype(::AsyncStream) = UV_STREAM
 uvhandle(stream::AsyncStream) = stream.handle
 
