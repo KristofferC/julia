@@ -118,7 +118,7 @@ function spmatmul{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, B::SparseMatrixCSC{Tv,Ti};
                          sortindices::Symbol = :sortcols)
     mA, nA = size(A)
     mB, nB = size(B)
-    nA==mB || throw(DimensionMismatch())
+    nA == mB || throw(DimensionMismatch("number of columns in A: $(nA) must be equal to number of rows in B: $(mB)"))
 
     colptrA = A.colptr; rowvalA = A.rowval; nzvalA = A.nzval
     colptrB = B.colptr; rowvalB = B.rowval; nzvalB = B.nzval
