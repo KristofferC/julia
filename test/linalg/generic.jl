@@ -29,3 +29,5 @@ for elty in (Int, Rational{BigInt}, Float32, Float64, BigFloat, Complex{Float32}
         @test logabsdet(convert(Matrix{elty}, -eye(n)))[2] == -1
     end
 end
+
+
