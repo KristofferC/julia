@@ -404,7 +404,7 @@ function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVe
     mA, nA = lapack_size(tA, A)
     mB, nB = lapack_size(tB, B)
     if mB != nA
-        throw(DimensionMismatch("Matrix A has dimensions ($mA, $nB), matrix B has dimensions ($mB, $nB)"))
+        throw(DimensionMismatch("Matrix A has dimensions ($mA, $nB), matrix B has dimensions ($mB,$nB)"))
     end
     if size(C,1) != mA || size(C,2) != nB
         throw(DimensionMismatch("Result C has dimensions $(size(C)), needs ($mA, $nB)"))
