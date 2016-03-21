@@ -65,10 +65,6 @@ end
     SparseVector(0, Int[], Float64[]))
 
 @test exact_equal(
-    sparsevec([3, 3], [5.0, -5.0], 8),
-    spzeros(Float64, 8))
-
-@test exact_equal(
     sparsevec([2, 3, 6], [12.0, 18.0, 25.0]),
     SparseVector(6, [2, 3, 6], [12.0, 18.0, 25.0]))
 
@@ -78,17 +74,6 @@ let x0 = SparseVector(8, [2, 3, 6], [12.0, 18.0, 25.0])
 
     @test exact_equal(
         sparsevec([3, 6, 2], [18.0, 25.0, 12.0], 8), x0)
-
-    @test exact_equal(
-        sparsevec([2, 3, 4, 4, 6], [12.0, 18.0, 5.0, -5.0, 25.0], 8),
-        x0)
-
-    @test exact_equal(
-        sparsevec([1, 1, 1, 2, 3, 3, 6], [2.0, 3.0, -5.0, 12.0, 10.0, 8.0, 25.0], 8),
-        x0)
-
-    @test exact_equal(
-        sparsevec([2, 3, 6, 7, 7], [12.0, 18.0, 25.0, 5.0, -5.0], 8), x0)
 end
 
 # from dictionary
@@ -168,7 +153,6 @@ let x = sprand(100, 0.5)
     @which x[I]
     r = x[I]
     @test isa(r, SparseVector{Float64,Int})
-    @test all(nonzeros(r) .!= 0.0)
     @test full(r) == full(x)[I]
 end
 
@@ -197,13 +181,13 @@ end
 
 let xc = copy(spv_x1)
     xc[5] = 0.0
-    @test exact_equal(xc, SparseVector(8, [2, 6], [1.25, 3.5]))
+    @test exact_equal(xc, SparseVector(8, [2, 5, 6], [1.25, 0.0, 3.5]))
 
     xc[6] = 0.0
-    @test exact_equal(xc, SparseVector(8, [2], [1.25]))
+    @test exact_equal(xc, SparseVector(8, [2, 5, 6], [1.25, 0.0, 0.0]))
 
     xc[2] = 0.0
-    @test exact_equal(xc, SparseVector(8, Int[], Float64[]))
+    @test exact_equal(xc, SparseVector(8, [2, 5, 6], [0.0, 0.0, 0.0]))
 end
 
 
@@ -919,6 +903,10 @@ x = sparsevec(Int64[], Float64[], 7)
 #test vector with sparsity approx 1/2
 x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 15)
 @test collect(sort(x)) == sort(collect(x))
+#test vector with zeros
+vals = [3., 2., 0., -1., 1., -2., -3., 3., 0.]
+x = sparsevec(1:9, vals, 15)
+@test x.nval == vals
 # apply three distinct tranformations where zeros sort into start/middle/end
 @test collect(sort(x, by=abs)) == sort(collect(x), by=abs)
 @test collect(sort(x, by=sign)) == sort(collect(x), by=sign)
