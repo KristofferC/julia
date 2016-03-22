@@ -906,7 +906,7 @@ x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 15)
 #test vector with zeros
 vals = [3., 2., 0., -1., 1., -2., -3., 3., 0.]
 x = sparsevec(1:9, vals, 15)
-@test x.nval == vals
+@test x.nzval == vals
 # apply three distinct tranformations where zeros sort into start/middle/end
 @test collect(sort(x, by=abs)) == sort(collect(x), by=abs)
 @test collect(sort(x, by=sign)) == sort(collect(x), by=sign)
