@@ -268,9 +268,11 @@ function showerror(io::IO, ex::UndefVarError)
     print(io, "UndefVarError: $(ex.var) not defined")
 end
 
+
 function showerror(io::IO, ex::MethodError)
     # ex.args is a tuple type if it was thrown from `invoke` and is
     # a tuple of the arguments otherwise.
+
     is_arg_types = isa(ex.args, DataType)
     arg_types = is_arg_types ? ex.args : typesof(ex.args...)
     f = ex.f
@@ -305,29 +307,39 @@ function showerror(io::IO, ex::MethodError)
     elseif isempty(methods(f)) && !isa(f, Function)
         print(io, "objects of type $ft are not callable")
     else
+        funcdef_buff = IOBuffer()
+        print(io, "no method matching ")
         if ft <: Function && isempty(ft.parameters) &&
                 isdefined(ft.name.module, name) &&
                 ft == typeof(getfield(ft.name.module, name))
             f_is_function = true
-            print(io, "no method matching ", name)
+            print(funcdef_buff, name)
         elseif isa(f, Type)
-            print(io, "no method matching ", f)
+            print(funcdef_buff, f)
         else
-            print(io, "no method matching (::", ft, ")")
+            print(funcdef_buff, "(::", ft,  ")")
         end
-        print(io, "(")
+        print(funcdef_buff, "(")
+        arg_strs = Vector{String}()
         for (i, typ) in enumerate(arg_types_param)
-            print(io, "::$typ")
-            i == length(arg_types_param) || print(io, ", ")
+            push!(arg_strs, "::" * string(typ) * (i == length(arg_types_param) ? "" : ", "))
         end
         if !isempty(kwargs)
-            print(io, "; ")
+            push!(arg_strs, "; ")
             for (i, (k, v)) in enumerate(kwargs)
-                print(io, k, "=")
-                show(IOContext(io, :limit=>true), v)
-                i == length(kwargs) || print(io, ", ")
+                kwarg_buf = IOBuffer()
+                show(IOContext(kwarg_buf, :limit=>true), v)
+                push!(arg_strs, string(k) * "=" * takebuf_string(kwarg_buf))
             end
         end
+        size_before_linebreak = 81
+        indent_len = strwidth(String(funcdef_buff))
+        error_prefix_len = strwidth("ERROR: MethodError: ") + indent_len
+        if length(arg_strs) > 0 && error_prefix_len + sum(strwidth(str) for str in arg_strs) > 81
+            print(io, "\n  ")
+        end
+        print(io, takebuf_string(funcdef_buff))
+        write_indent(io, arg_strs, indent_len + 2, 81)
         print(io, ")")
     end
     if ft <: AbstractArray
@@ -445,10 +457,12 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                 show_delim_array(buf, tv, '{', ',', '}', false)
             end
             print(buf, "(")
+            indent_len = strwidth(String(buf))
+            arg_strs = Vector{String}()
             t_i = copy(arg_types_param)
             right_matches = 0
+            argbuf = IOBuffer()
             for i = 1 : min(length(t_i), length(sig))
-                i > 1 && print(buf, ", ")
                 # If isvarargtype then it checks whether the rest of the input arguments matches
                 # the varargtype
                 if Base.isvarargtype(sig[i])
@@ -465,11 +479,11 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                 t_in === Union{} && special && i == 1 && break
                 if t_in === Union{}
                     if Base.have_color
-                        Base.with_output_color(:red, buf) do buf
-                            print(buf, "::$sigstr")
+                        Base.with_output_color(:red, argbuf) do argbuf
+                            print(argbuf, "::$sigstr")
                         end
                     else
-                        print(buf, "!Matched::$sigstr")
+                        print(argbuf, "!Matched::$sigstr")
                     end
                     # If there is no typeintersect then the type signature from the method is
                     # inserted in t_i this ensures if the type at the next i matches the type
@@ -477,8 +491,10 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                     t_i[i] = sig[i]
                 else
                     right_matches += j==i ? 1 : 0
-                    print(buf, "::$sigstr")
+                    print(argbuf, "::$sigstr")
                 end
+                i == min(length(t_i), length(sig)) || print(argbuf, ", ")
+                push!(arg_strs, takebuf_string(argbuf))
             end
             special && right_matches==0 && return # continue the do-block
 
@@ -503,23 +519,34 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                             sigstr = string(sigtype)
                         end
                         if !((min(length(t_i), length(sig)) == 0) && k==1)
-                            print(buf, ", ")
+                            print(argbuf, ", ")
                         end
                         if Base.have_color
-                            Base.with_output_color(:red, buf) do buf
-                                print(buf, "::$sigstr")
+                            Base.with_output_color(:red, argbuf) do argbuf
+                                print(argbuf, "::$sigstr")
                             end
                         else
-                            print(buf, "!Matched::$sigstr")
+                            print(argbuf, "!Matched::$sigstr")
                         end
+                        push!(arg_strs, takebuf_string(argbuf))
                     end
                 end
                 kwords = Symbol[]
                 if isdefined(ft.name.mt, :kwsorter)
                     kwsorter_t = typeof(ft.name.mt.kwsorter)
                     kwords = kwarg_decl(method.sig, kwsorter_t)
-                    length(kwords) > 0 && print(buf, "; ", join(kwords, ", "))
+                    if length(kwords) > 0
+                        if len(arg_strs) > 0
+                             arg_strs[end] = arg_strs[end] * ";"
+                        else
+                            push!(arg_strs, ";")
+                        end
+                        for (i, kw) in enumerate(kwords)
+                            push!(arg_strs, kw, i == length(kw) ? "" : ",")
+                        end
+                    end
                 end
+                write_indent(buf, arg_strs, indent_len, 81)
                 print(buf, ")")
                 print(buf, " at ", method.file, ":", method.line)
                 if !isempty(kwargs)
