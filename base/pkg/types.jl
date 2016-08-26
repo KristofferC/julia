@@ -50,7 +50,7 @@ end
 hash(s::VersionSet, h::UInt) = hash(s.intervals, h + (0x2fd2ca6efa023f44 % UInt))
 deepcopy_internal(vs::VersionSet, ::ObjectIdDict) = VersionSet(copy(vs.intervals))
 
-typealias Requires Dict{String,VersionSet}
+typealias Requires Dict{String, VersionSet}
 
 function merge_requires!(A::Requires, B::Requires)
     for (pkg,vers) in B

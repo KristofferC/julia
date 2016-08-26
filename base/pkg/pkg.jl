@@ -6,7 +6,8 @@ export Dir, Types, Reqs, Cache, Read, Query, Resolve, Write, Entry
 export dir, init, rm, add, available, installed, status, clone, checkout,
        update, resolve, test, build, free, pin, PkgError, setprotocol!
 
-const DEFAULT_META = "https://github.com/JuliaLang/METADATA.jl"
+const META_NAME = "METADATA"
+const DEFAULT_META = "https://github.com/JuliaLang/$(META_NAME).jl"
 const META_BRANCH = "metadata-v2"
 
 type PkgError <: Exception
@@ -145,7 +146,7 @@ status(pkg::AbstractString, io::IO=STDOUT) = cd(Entry.status,io,pkg)
 """
     clone(pkg)
 
-If `pkg` has a URL registered in `Pkg.dir("METADATA")`, clone it from that URL on the
+If `pkg` has a URL registered in `Pkg.dir($(META_NAME))`, clone it from that URL on the
 default branch. The package does not need to have any registered versions.
 """
 clone(url_or_pkg::AbstractString) = cd(Entry.clone,url_or_pkg)
@@ -154,7 +155,7 @@ clone(url_or_pkg::AbstractString) = cd(Entry.clone,url_or_pkg)
     clone(url, [pkg])
 
 Clone a package directly from the git URL `url`. The package does not need to be registered
-in `Pkg.dir("METADATA")`. The package repo is cloned by the name `pkg` if provided; if not
+in `Pkg.dir($(META_NAME))`. The package repo is cloned by the name `pkg` if provided; if not
 provided, `pkg` is determined automatically from `url`.
 """
 clone(url::AbstractString, pkg::AbstractString) = cd(Entry.clone,url,pkg)
@@ -200,7 +201,7 @@ pin(pkg::AbstractString, ver::VersionNumber) = cd(Entry.pin,pkg,ver)
 """
     update(pkgs...)
 
-Update the metadata repo – kept in `Pkg.dir("METADATA")` – then update any fixed packages
+Update the metadata repo – kept in `Pkg.dir($(META_NAME))` – then update any fixed packages
 that can safely be pulled from their origin; then call `Pkg.resolve()` to determine a new
 optimal set of packages versions.
 

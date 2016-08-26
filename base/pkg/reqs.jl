@@ -8,18 +8,14 @@ using ..Types
 
 # representing lines of REQUIRE files
 
-abstract Line
-immutable Comment <: Line
-    content::String
-end
-immutable Requirement <: Line
+immutable Requirement
     content::String
     package::String
     versions::VersionSet
     system::Vector{String}
 
     function Requirement(content::String)
-        fields = split(replace(content, r"#.*$", ""))
+        fields = collect(split(content, '#')[1]) # Strip comments in REQUIRE line
         system = String[]
         while !isempty(fields) && fields[1][1] == '@'
             push!(system,shift!(fields)[2:end])
@@ -49,31 +45,33 @@ immutable Requirement <: Line
     end
 end
 
-==(a::Line, b::Line) = a.content == b.content
-hash(s::Line, h::UInt) = hash(s.content, h + (0x3f5a631add21cb1a % UInt))
+==(a::Requirement, b::Requirement) = a.content == b.content
+hash(s::Requirement, h::UInt) = hash(s.content, h + (0x3f5a631add21cb1a % UInt))
 
 # general machinery for parsing REQUIRE files
 
 function read{T<:AbstractString}(readable::Vector{T})
-    lines = Line[]
+    lines = Requirement[]
     for line in readable
         line = chomp(line)
-        push!(lines, ismatch(r"^\s*(?:#|$)", line) ? Comment(line) : Requirement(line))
+        ismatch(r"^\s*(?:#|$)", line) && continue # This line only contains a comment
+        push!(lines, Requirement(line))
     end
     return lines
 end
 
 function read(readable::Union{IO,Base.AbstractCmd})
-    lines = Line[]
+    lines = Requirement[]
     for line in eachline(readable)
         line = chomp(line)
-        push!(lines, ismatch(r"^\s*(?:#|$)", line) ? Comment(line) : Requirement(line))
+        ismatch(r"^\s*(?:#|$)", line) && continue
+        push!(lines, Requirement(line))
     end
     return lines
 end
-read(file::AbstractString) = isfile(file) ? open(read,file) : Line[]
+read(file::AbstractString) = isfile(file) ? open(read,file) : Requirement[]
 
-function write(io::IO, lines::Vector{Line})
+function write(io::IO, lines::Vector{Requirement})
     for line in lines
         println(io, line.content)
     end
@@ -83,29 +81,27 @@ function write(io::IO, reqs::Requires)
         println(io, Requirement(pkg, reqs[pkg]).content)
     end
 end
-write(file::AbstractString, r::Union{Vector{Line},Requires}) = open(io->write(io,r), file, "w")
+write(file::AbstractString, r::Union{Vector{Requirement},Requires}) = open(io->write(io,r), file, "w")
 
-function parse(lines::Vector{Line})
+function parse(lines::Vector{Requirement})
     reqs = Requires()
     for line in lines
-        if isa(line,Requirement)
-            if !isempty(line.system)
-                applies = false
-                if is_windows(); applies |=  ("windows"  in line.system); end
-                if is_unix();    applies |=  ("unix"     in line.system); end
-                if is_apple();   applies |=  ("osx"      in line.system); end
-                if is_linux();   applies |=  ("linux"    in line.system); end
-                if is_bsd();     applies |=  ("bsd"      in line.system); end
-                if is_windows(); applies &= !("!windows" in line.system); end
-                if is_unix();    applies &= !("!unix"    in line.system); end
-                if is_apple();   applies &= !("!osx"     in line.system); end
-                if is_linux();   applies &= !("!linux"   in line.system); end
-                if is_bsd();     applies &= !("!bsd"     in line.system); end
-                applies || continue
-            end
-            reqs[line.package] = haskey(reqs, line.package) ?
-                intersect(reqs[line.package], line.versions) : line.versions
+        if !isempty(line.system)
+            applies = false
+            if is_windows(); applies |=  ("windows"  in line.system); end
+            if is_unix();    applies |=  ("unix"     in line.system); end
+            if is_apple();   applies |=  ("osx"      in line.system); end
+            if is_linux();   applies |=  ("linux"    in line.system); end
+            if is_bsd();     applies |=  ("bsd"      in line.system); end
+            if is_windows(); applies &= !("!windows" in line.system); end
+            if is_unix();    applies &= !("!unix"    in line.system); end
+            if is_apple();   applies &= !("!osx"     in line.system); end
+            if is_linux();   applies &= !("!linux"   in line.system); end
+            if is_bsd();     applies &= !("!bsd"     in line.system); end
+            applies || continue
         end
+        reqs[line.package] = haskey(reqs, line.package) ?
+            intersect(reqs[line.package], line.versions) : line.versions
     end
     return reqs
 end
@@ -125,10 +121,10 @@ end
 
 # add & rm – edit the content a requires file
 
-function add(lines::Vector{Line}, pkg::AbstractString, versions::VersionSet=VersionSet())
+function add(lines::Vector{Requirement}, pkg::AbstractString, versions::VersionSet=VersionSet())
     v = VersionSet[]
     filtered = filter(lines) do line
-        if !isa(line,Comment) && line.package == pkg && isempty(line.system)
+        if line.package == pkg && isempty(line.system)
             push!(v, line.versions)
             return false
         end
@@ -139,8 +135,8 @@ function add(lines::Vector{Line}, pkg::AbstractString, versions::VersionSet=Vers
     push!(filtered, Requirement(pkg, versions))
 end
 
-rm(lines::Vector{Line}, pkg::AbstractString) = filter(lines) do line
-    isa(line,Comment) || line.package != pkg
+rm(lines::Vector{Requirement}, pkg::AbstractString) = filter(lines) do line
+    line.package != pkg
 end
 
 end # module

@@ -87,6 +87,7 @@ function split_idents(s::AbstractString)
 end
 
 function VersionNumber(v::AbstractString)
+    # Fast path
     m = match(VERSION_REGEX, v)
     m === nothing && throw(ArgumentError("invalid version string: $v"))
     major, minor, patch, minus, prerl, plus, build = m.captures

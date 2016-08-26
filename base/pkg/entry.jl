@@ -6,7 +6,7 @@ import Base: thispatch, nextpatch, nextminor, nextmajor, check_new_version
 import ..Reqs, ..Read, ..Query, ..Resolve, ..Cache, ..Write, ..Dir
 import ...LibGit2
 importall ...LibGit2
-import ...Pkg.PkgError
+import ...Pkg: PkgError, META_NAME
 using ..Types
 
 macro recover(ex)
@@ -54,7 +54,7 @@ function add(pkg::AbstractString, vers::VersionSet)
             info("Nothing to be done")
         end
         branch = Dir.getmetabranch()
-        outdated = with(GitRepo, "METADATA") do repo
+        outdated = with(GitRepo, META_NAME) do repo
             if LibGit2.branch(repo) == branch
                 if LibGit2.isdiff(repo, "origin/$branch")
                     outdated = :yes
@@ -170,7 +170,7 @@ function status(io::IO, pkg::AbstractString, ver::VersionNumber, fix::Bool)
                 end
             end
             attrs = String[]
-            isfile("METADATA",pkg,"url") || push!(attrs,"unregistered")
+            isfile(META_NAME,pkg,"url") || push!(attrs,"unregistered")
             LibGit2.isdirty(prepo) && push!(attrs,"dirty")
             isempty(attrs) || print(io, " (",join(attrs,", "),")")
         catch err
@@ -207,7 +207,7 @@ function clone(url::AbstractString, pkg::AbstractString)
 end
 
 function clone(url_or_pkg::AbstractString)
-    urlpath = joinpath("METADATA",url_or_pkg,"url")
+    urlpath = joinpath(META_NAME,url_or_pkg,"url")
     if !(':' in url_or_pkg) && isfile(urlpath)
         pkg = url_or_pkg
         url = readchomp(urlpath)
@@ -351,7 +351,7 @@ end
 
 function update(branch::AbstractString, upkgs::Set{String})
     info("Updating METADATA...")
-    with(GitRepo, "METADATA") do repo
+    with(GitRepo, META_NAME) do repo
         try
             with(LibGit2.head(repo)) do h
                 if LibGit2.branch(h) != branch
@@ -375,7 +375,7 @@ function update(branch::AbstractString, upkgs::Set{String})
             end
         catch err
             cex = CapturedException(err, catch_backtrace())
-            throw(PkgError("METADATA cannot be updated. Resolve problems manually in $(Pkg.dir("METADATA")).", cex))
+            throw(PkgError("METADATA cannot be updated. Resolve problems manually in $(Pkg.dir(META_NAME)).", cex))
         end
     end
     deferred_errors = CompositeException()

@@ -2,7 +2,7 @@
 
 module Dir
 
-import ..Pkg: DEFAULT_META, META_BRANCH, PkgError
+import ..Pkg: DEFAULT_META, META_BRANCH, PkgError, META_NAME
 import ...LibGit2, ...LibGit2.with
 
 const DIR_NAME = ".julia"
@@ -14,7 +14,7 @@ function path()
     b = _pkgroot()
     x, y = VERSION.major, VERSION.minor
     d = joinpath(b,"v$x.$y")
-    if isdir(d) || !isdir(b) || !isdir(joinpath(b, "METADATA"))
+    if isdir(d) || !isdir(b) || !isdir(joinpath(b, META_NAME))
         return d
     end
     return b
@@ -23,7 +23,7 @@ path(pkg::AbstractString...) = normpath(path(),pkg...)
 
 function cd(f::Function, args...; kws...)
     dir = path()
-    metadata_dir = joinpath(dir, "METADATA")
+    metadata_dir = joinpath(dir, META_NAME)
     if !isdir(metadata_dir)
         !haskey(ENV,"JULIA_PKGDIR") ? init() :
             throw(PkgError("Package metadata directory $metadata_dir doesn't exist; run Pkg.init() to initialize it."))
@@ -34,7 +34,7 @@ end
 function init(meta::AbstractString=DEFAULT_META, branch::AbstractString=META_BRANCH)
     dir = path()
     info("Initializing package repository $dir")
-    metadata_dir = joinpath(dir, "METADATA")
+    metadata_dir = joinpath(dir, META_NAME)
     if isdir(metadata_dir)
         info("Package directory $dir is already initialized.")
         LibGit2.set_remote_url(metadata_dir, meta)
@@ -45,8 +45,8 @@ function init(meta::AbstractString=DEFAULT_META, branch::AbstractString=META_BRA
         mkpath(dir)
         temp_dir = mktempdir(dir)
         Base.cd(temp_dir) do
-            info("Cloning METADATA from $meta")
-            with(LibGit2.clone(meta, "METADATA", branch = branch)) do metadata_repo
+            info("Cloning $(META_NAME) from $meta")
+            with(LibGit2.clone(meta, META_NAME, branch = branch)) do metadata_repo
                 LibGit2.set_remote_url(metadata_repo, meta)
             end
             touch("REQUIRE")
@@ -54,7 +54,7 @@ function init(meta::AbstractString=DEFAULT_META, branch::AbstractString=META_BRA
             write("META_BRANCH", branch)
         end
         #Move TEMP to METADATA
-        Base.mv(joinpath(temp_dir,"METADATA"), metadata_dir)
+        Base.mv(joinpath(temp_dir,META_NAME), metadata_dir)
         Base.mv(joinpath(temp_dir,"REQUIRE"), joinpath(dir,"REQUIRE"))
         Base.mv(joinpath(temp_dir,"META_BRANCH"), joinpath(dir,"META_BRANCH"))
         rm(temp_dir)

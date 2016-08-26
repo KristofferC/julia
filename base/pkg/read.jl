@@ -2,19 +2,19 @@
 
 module Read
 
-import ...LibGit2, ..Cache, ..Reqs, ...Pkg.PkgError, ..Dir
+import ...LibGit2, ..Cache, ..Reqs, ...Pkg.PkgError, ...Pkg.META_NAME, ..Dir
 using ..Types
 
 readstrip(path...) = strip(readstring(joinpath(path...)))
 
-url(pkg::AbstractString) = readstrip(Dir.path("METADATA"), pkg, "url")
-sha1(pkg::AbstractString, ver::VersionNumber) = readstrip(Dir.path("METADATA"), pkg, "versions", string(ver), "sha1")
+url(pkg::AbstractString) = readstrip(Dir.path(META_NAME), pkg, "url")
+sha1(pkg::AbstractString, ver::VersionNumber) = readstrip(Dir.path(META_NAME), pkg, "versions", string(ver), "sha1")
 
-function available(names=readdir("METADATA"))
+function available(names=readdir(META_NAME))
     pkgs = Dict{String,Dict{VersionNumber,Available}}()
     for pkg in names
-        isfile("METADATA", pkg, "url") || continue
-        versdir = joinpath("METADATA", pkg, "versions")
+        isfile(META_NAME, pkg, "url") || continue
+        versdir = joinpath(META_NAME, pkg, "versions")
         isdir(versdir) || continue
         for ver in readdir(versdir)
             ismatch(Base.VERSION_REGEX, ver) || continue
@@ -30,11 +30,11 @@ function available(names=readdir("METADATA"))
 end
 available(pkg::AbstractString) = get(available([pkg]),pkg,Dict{VersionNumber,Available}())
 
-function latest(names=readdir("METADATA"))
+function latest(names=readdir(META_NAME))
     pkgs = Dict{String,Available}()
     for pkg in names
-        isfile("METADATA", pkg, "url") || continue
-        versdir = joinpath("METADATA", pkg, "versions")
+        isfile(META_NAME, pkg, "url") || continue
+        versdir = joinpath(META_NAME, pkg, "versions")
         isdir(versdir) || continue
         pkgversions = VersionNumber[]
         for ver in readdir(versdir)
@@ -53,11 +53,11 @@ function latest(names=readdir("METADATA"))
 end
 
 isinstalled(pkg::AbstractString) =
-    pkg != "METADATA" && pkg != "REQUIRE" && pkg[1] != '.' && isdir(pkg)
+    pkg != META_NAME && pkg != "REQUIRE" && pkg[1] != '.' && isdir(pkg)
 
 function isfixed(pkg::AbstractString, prepo::LibGit2.GitRepo, avail::Dict=available(pkg))
     isinstalled(pkg) || throw(PkgError("$pkg is not an installed package."))
-    isfile("METADATA", pkg, "url") || return true
+    isfile(META_NAME, pkg, "url") || return true
     ispath(pkg, ".git") || return true
 
     LibGit2.isdirty(prepo) && return true
@@ -186,7 +186,7 @@ function requires_path(pkg::AbstractString, avail::Dict=available(pkg))
     end
     for (ver,info) in avail
         if head == info.sha1
-            return joinpath("METADATA", pkg, "versions", string(ver), "requires")
+            return joinpath(META_NAME, pkg, "versions", string(ver), "requires")
         end
     end
     return pkgreq
