@@ -10,17 +10,17 @@ using ..Types
 
 abstract Line
 immutable Comment <: Line
-    content::AbstractString
+    content::String
 end
 immutable Requirement <: Line
-    content::AbstractString
-    package::AbstractString
+    content::String
+    package::String
     versions::VersionSet
-    system::Vector{AbstractString}
+    system::Vector{String}
 
-    function Requirement(content::AbstractString)
+    function Requirement(content::String)
         fields = split(replace(content, r"#.*$", ""))
-        system = AbstractString[]
+        system = String[]
         while !isempty(fields) && fields[1][1] == '@'
             push!(system,shift!(fields)[2:end])
         end
@@ -32,7 +32,7 @@ immutable Requirement <: Line
         issorted(versions) || throw(PkgError("invalid requires entry for $package: $content"))
         new(content, package, VersionSet(versions), system)
     end
-    function Requirement(package::AbstractString, versions::VersionSet, system::Vector{AbstractString}=AbstractString[])
+    function Requirement(package::AbstractString, versions::VersionSet, system::Vector{String}=String[])
         content = ""
         for os in system
             content *= "@$os "
@@ -112,7 +112,7 @@ end
 parse(x) = parse(read(x))
 
 function dependents(packagename::AbstractString)
-    pkgs = AbstractString[]
+    pkgs = String[]
     cd(Pkg.dir()) do
         for (pkg,latest) in Pkg.Read.latest()
             if haskey(latest.requires, packagename)

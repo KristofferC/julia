@@ -86,7 +86,7 @@ end
 
 function available()
     all_avail = Read.available()
-    avail = AbstractString[]
+    avail = String[]
     for (pkg, vers) in all_avail
         any(x->Types.satisfies("julia", VERSION, x[2].requires), vers) && push!(avail, pkg)
     end
@@ -169,7 +169,7 @@ function status(io::IO, pkg::AbstractString, ver::VersionNumber, fix::Bool)
                     print(io, string(LibGit2.Oid(phead))[1:8])
                 end
             end
-            attrs = AbstractString[]
+            attrs = String[]
             isfile("METADATA",pkg,"url") || push!(attrs,"unregistered")
             LibGit2.isdirty(prepo) && push!(attrs,"dirty")
             isempty(attrs) || print(io, " (",join(attrs,", "),")")
@@ -682,9 +682,9 @@ function updatehook(pkgs::Vector)
 end
 
 function test!(pkg::AbstractString,
-               errs::Vector{AbstractString},
-               nopkgs::Vector{AbstractString},
-               notests::Vector{AbstractString}; coverage::Bool=false)
+               errs::Vector{String},
+               nopkgs::Vector{String},
+               notests::Vector{String}; coverage::Bool=false)
     reqs_path = abspath(pkg,"test","REQUIRE")
     if isfile(reqs_path)
         tests_require = Reqs.parse(reqs_path)
@@ -717,15 +717,15 @@ function test!(pkg::AbstractString,
     isfile(reqs_path) && resolve()
 end
 
-function test(pkgs::Vector{AbstractString}; coverage::Bool=false)
-    errs = AbstractString[]
-    nopkgs = AbstractString[]
-    notests = AbstractString[]
+function test(pkgs::Vector{String}; coverage::Bool=false)
+    errs = String[]
+    nopkgs = String[]
+    notests = String[]
     for pkg in pkgs
         test!(pkg,errs,nopkgs,notests; coverage=coverage)
     end
     if !all(isempty, (errs, nopkgs, notests))
-        messages = AbstractString[]
+        messages = String[]
         if !isempty(errs)
             push!(messages, "$(join(errs,", "," and ")) had test errors")
         end
@@ -741,6 +741,6 @@ function test(pkgs::Vector{AbstractString}; coverage::Bool=false)
     end
 end
 
-test(;coverage::Bool=false) = test(sort!(AbstractString[keys(installed())...]); coverage=coverage)
+test(;coverage::Bool=false) = test(sort!(String[keys(installed())...]); coverage=coverage)
 
 end # module
