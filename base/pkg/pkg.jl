@@ -6,8 +6,8 @@ export Dir, Types, Reqs, Cache, Read, Query, Resolve, Write, Entry
 export dir, init, rm, add, available, installed, status, clone, checkout,
        update, resolve, test, build, free, pin, PkgError, setprotocol!
 
-const DEFAULT_META = "https://github.com/JuliaLang/METADATA.jl"
-const META_BRANCH = "metadata-v2"
+const DEFAULT_META = "https://github.com/KristofferC/METADATA.jl"
+const META_BRANCH = "metadata-v3"
 
 type PkgError <: Exception
     msg::AbstractString

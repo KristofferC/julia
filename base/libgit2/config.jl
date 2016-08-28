@@ -51,7 +51,7 @@ function addfile(cfg::GitConfig, path::AbstractString,
                    cfg.ptr, path, Cint(level), Cint(force))
 end
 
-function get{T<:AbstractString}(::Type{T}, c::GitConfig, name::AbstractString)
+function Base.get{T<:AbstractString}(::Type{T}, c::GitConfig, name::AbstractString)
     buf_ptr = Ref(Buffer())
     @check ccall((:git_config_get_string_buf, :libgit2), Cint,
                 (Ptr{Buffer}, Ptr{Void}, Cstring), buf_ptr, c.ptr, name)

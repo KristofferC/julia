@@ -5,10 +5,15 @@ module Read
 import ...LibGit2, ..Cache, ..Reqs, ...Pkg.PkgError, ..Dir
 using ..Types
 
-readstrip(path...) = strip(readstring(joinpath(path...)))
+import Base.LibGit2: GitRepo, GitReference, GitTree, GitBlob, filename, peel, object, content, with, lookup
 
-url(pkg::AbstractString) = readstrip(Dir.path("METADATA"), pkg, "url")
-sha1(pkg::AbstractString, ver::VersionNumber) = readstrip(Dir.path("METADATA"), pkg, "versions", string(ver), "sha1")
+
+metapkgpath(s::AbstractString) = joinpath(uppercase(string(s[1])), s * ".versions")
+
+url(pkg::AbstractString) = chomp(readline(joinpath(Dir.path("METADATA"), metapkgpath(pkg))))
+
+# Should only be called when cache is guaranteed to be updated
+sha1(pkg::AbstractString, ver::VersionNumber) = PKG_AVAILABLE_CACHE.pkgs[pkg][ver].sha1
 
 type AvailableCache
     sha::String
@@ -25,73 +30,144 @@ function copypkg(old_pkg)
     return new_pkg
 end
 
-function _available(names)
+function read_version{T <: AbstractString}(s::Vector{T}, i::Int)
+    version = s[i]; i += 1
+    i += 1 # skip "-----" under the version
+    sha = s[i]; i += 1
+    requires = String[]
+    while i <= length(s) && !isempty(s[i])
+        push!(requires, s[i]); i += 1
+    end
+    i += 1 # skip the empty string
+    return version, sha, requires, i
+end
+
+
+function read_package!(pkgs, lines::Vector, pkg_name::AbstractString)
+    i = 3 # Skip url + empty line
+    isempty(lines[i]) && return # TODO: Package is without a version
+    while i <= length(lines)
+        ver, sha, requires, i = read_version(lines, i)
+        haskey(pkgs, pkg_name) || (pkgs[pkg_name] = Dict{VersionNumber,Available}())
+        z = Reqs.parse(requires)
+        q = Available(sha, z)
+        pkgs[pkg_name][VersionNumber(ver)] = q
+    end
+end
+
+function available(names)
     pkgs = Dict{String,Dict{VersionNumber,Available}}()
-    for pkg in names
-        isfile("METADATA", pkg, "url") || continue
-        versdir = joinpath("METADATA", pkg, "versions")
-        isdir(versdir) || continue
-        for ver in readdir(versdir)
-            ismatch(Base.VERSION_REGEX, ver) || continue
-            isfile(versdir, ver, "sha1") || continue
-            haskey(pkgs,pkg) || (pkgs[pkg] = Dict{VersionNumber,Available}())
-            pkgs[pkg][convert(VersionNumber,ver)] = Available(
-                readchomp(joinpath(versdir,ver,"sha1")),
-                Reqs.parse(joinpath(versdir,ver,"requires"))
-            )
+    cd("METADATA") do
+        for pkg in names
+            path = metapkgpath(pkg)
+            !isfile(path) && continue
+            read_package!(pkgs, split(readstring(path), '\n'), pkg)
         end
     end
     return pkgs
 end
-available(pkg::AbstractString) = get(_available([pkg]),pkg,Dict{VersionNumber,Available}())
+
+
+
+available(pkg::AbstractString) = get(available([pkg]),pkg,Dict{VersionNumber,Available}())
+
+
+#=
+function _available(repo::GitRepo, repohead::GitReference)
+    pkgs = Dict{String,Dict{VersionNumber,Available}}()
+    with(peel(LibGit2.GitTree, repohead)) do head_tree
+        for first_letter_tree in filter(isdir, head_tree) # A, B, C folders...
+            startswith(filename(first_letter_tree), '.') && continue
+            with(object(repo, first_letter_tree)) do obj
+                with(peel(GitTree, obj)) do pkg_tree
+                    for pkg_entry in filter(isfile, pkg_tree)
+                        pkg_name = filename(pkg_entry)
+                        !endswith(pkg_name, ".versions")  && continue
+                        pkg_name = split(pkg_name, ".versions")[1]
+                        with(object(repo, pkg_entry)) do pkg_obj
+                            with(peel(GitBlob, pkg_obj)) do pkg_blob
+                                lines = split(unsafe_string(convert(Cstring, content(pkg_blob))), '\n')
+                                read_package!(pkgs, lines, pkg_name)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return pkgs
+end
+=#
+
+#=
+function available(pkg::AbstractString)
+    pkg_avail =  Dict{String,Dict{VersionNumber,Available}}()
+    with(GitRepo("METADATA")) do repo
+        with(LibGit2.head(repo)) do repohead # Head
+            startletter = uppercase(string(pkg[1]))
+            with(LibGit2.peel(GitTree, repohead)) do repotree # Base METADATA directory
+                tree_entry = lookup(repotree, startletter)
+                (isnull(tree_entry) || !isdir(get(tree_entry))) && return
+                with(object(repo, get(tree_entry))) do tree_obj
+                    with(LibGit2.peel(GitTree, tree_obj)) do first_letter_tree # A, B, C directory
+                        pkg_entry = lookup(first_letter_tree, pkg * ".versions")
+                        (isnull(pkg_entry) && return) # || !LibGit2.isfile(pkg_entry)) && return
+                        pkg_name = filename(get(tree_entry))
+                        with(object(repo, get(pkg_entry))) do pkg_obj
+                            with(peel(GitBlob, pkg_obj)) do pkg_blob
+                                lines = split(unsafe_string(convert(Cstring, content(pkg_blob))), '\n')
+                                read_package!(pkg_avail, lines, pkg)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    get(pkg_avail, pkg, Dict{VersionNumber,Available}())
+end
+=#
 
 # Uses cached data if not outdated
 function available(cache::AvailableCache = PKG_AVAILABLE_CACHE)
-    names = readdir("METADATA")
+    function get_pkgs()
+        names = String[]
+        cd("METADATA") do
+            for firstletterpath in filter(x->isdir(x) && !startswith(x, '.'), readdir())
+                append!(names, map(x -> split(x, ".versions")[1], readdir(firstletterpath)))
+            end
+        end
+        return names
+    end
     # Not a git repo so just bail on using cache
-    if in(".git", names)
-        pkg, usecache = LibGit2.with(LibGit2.GitRepo("METADATA")) do repo
-            LibGit2.with(LibGit2.head(repo)) do head
-                sha = string(Base.LibGit2.Oid(head))
-                # Only use cache if nothing funky is going on.
-                # This should be true in the majority of cases
-                # Note that GitStatus is unfortunately quite slow due to the way METADATA
-                # is currently structured with so many files.
-                if length(LibGit2.GitStatus(repo)) == 0
+    #!(".git" in names) && error("METADATA must be a git repo")
+    return with(LibGit2.GitRepo("METADATA")) do repo
+        with(LibGit2.head(repo)) do head
+            sha = string(Base.LibGit2.Oid(head))
+            with(LibGit2.GitStatus(repo)) do status
+                # Only use cache if nothing funky is going on, this should be true in the majority of cases
+                if length(status) == 0
                     # Sha does not match, update the cache with the new pkgs
                     if cache.sha != sha
-                        cache.pkgs = _available(names)
+                        cache.pkgs = available(get_pkgs())
                         cache.sha = sha
                     end
                     # Copy because some functions that uses this data mutate state, like Pkg.Query.requirements
-                    return copypkg(cache.pkgs), true
+                    return cache.pkgs
                 end
-                nothing, false
+                return available(get_pkgs())
             end
         end
-        usecache && return pkg
     end
-    return _available(names)
 end
 
-function latest(names=readdir("METADATA"))
+function latest()
+    pkgs_all = available()
     pkgs = Dict{String,Available}()
-    for pkg in names
-        isfile("METADATA", pkg, "url") || continue
-        versdir = joinpath("METADATA", pkg, "versions")
-        isdir(versdir) || continue
-        pkgversions = VersionNumber[]
-        for ver in readdir(versdir)
-            ismatch(Base.VERSION_REGEX, ver) || continue
-            isfile(versdir, ver, "sha1") || continue
-            push!(pkgversions, convert(VersionNumber,ver))
-        end
-        isempty(pkgversions) && continue
-        ver = string(maximum(pkgversions))
-        pkgs[pkg] = Available(
-                readchomp(joinpath(versdir,ver,"sha1")),
-                Reqs.parse(joinpath(versdir,ver,"requires"))
-            )
+    for (pkg, v) in pkgs_all
+        isempty(pkg) && continue
+        ver = maximum(keys(v))
+        pkgs[pkg] = v[ver]
     end
     return pkgs
 end
@@ -101,7 +177,7 @@ isinstalled(pkg::AbstractString) =
 
 function isfixed(pkg::AbstractString, prepo::LibGit2.GitRepo, avail::Dict=available(pkg))
     isinstalled(pkg) || throw(PkgError("$pkg is not an installed package."))
-    isfile("METADATA", pkg, "url") || return true
+    isfile("METADATA", metapkgpath(pkg)) || return true
     ispath(pkg, ".git") || return true
 
     LibGit2.isdirty(prepo) && return true
@@ -146,7 +222,7 @@ end
 
 function ispinned(pkg::AbstractString)
     ispath(pkg,".git") || return false
-    LibGit2.with(LibGit2.GitRepo, pkg) do repo
+    with(LibGit2.GitRepo, pkg) do repo
         return ispinned(repo)
     end
 end
@@ -222,7 +298,7 @@ function requires_path(pkg::AbstractString, avail::Dict=available(pkg))
     pkgreq = joinpath(pkg,"REQUIRE")
     ispath(pkg,".git") || return pkgreq
     repo = LibGit2.GitRepo(pkg)
-    head = LibGit2.with(LibGit2.GitRepo, pkg) do repo
+    head = with(LibGit2.GitRepo, pkg) do repo
         LibGit2.isdirty(repo, "REQUIRE") && return pkgreq
         LibGit2.need_update(repo)
         LibGit2.iszero(LibGit2.revparseid(repo, "HEAD:REQUIRE")) && isfile(pkgreq) && return pkgreq
@@ -248,7 +324,7 @@ function installed(avail::Dict=available())
         isinstalled(pkg) || continue
         ap = get(avail,pkg,Dict{VersionNumber,Available}())
         if ispath(pkg,".git")
-            LibGit2.with(LibGit2.GitRepo, pkg) do repo
+            with(LibGit2.GitRepo, pkg) do repo
                 ver = installed_version(pkg, repo, ap)
                 fixed = isfixed(pkg, repo, ap)
                 pkgs[pkg] = (ver, fixed)
