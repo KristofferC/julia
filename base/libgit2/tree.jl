@@ -27,9 +27,9 @@ function Base.Filesystem.filemode(te::GitTreeEntry)
     return ccall((:git_tree_entry_filemode, :libgit2), Cint, (Ptr{Void},), te.ptr)
 end
 
-Base.Filesystem.isdir(tree_entry::GitTreeEntry) = filemode(tree_entry) == Int(LibGit2.Consts.FILEMODE_TREE)
-function Base.Filesystem.isfile(tree_entry::GitTreeEntry)
-    mode  = filemode(tree_entry)
+isdir(tree_entry::GitTreeEntry) = filemode(tree_entry) == Int(LibGit2.Consts.FILEMODE_TREE)
+function isfile(tree_entry::GitTreeEntry)
+    mode  = LibGit2.filemode(tree_entry)
     return mode == Int(LibGit2.Consts.FILEMODE_BLOB) || mode == Int(LibGit2.Consts.FILEMODE_BLOB_EXECUTABLE)
 end
 
@@ -41,6 +41,23 @@ function object(repo::GitRepo, te::GitTreeEntry)
     return GitAnyObject(obj_ptr_ptr[])
 end
 
+"""Lookup a tree entry by its file name.
+
+This returns a `GitTreeEntry` that is owned by the `GitTree`.
+You don't have to free it, but you must not use it after the `GitTree` is released.
+"""
+function lookup(tree::GitTree, fname::AbstractString)
+    res = ccall((:git_tree_entry_byname, :libgit2), Ptr{Void},
+                (Ref{Void}, Cstring), tree.ptr, fname)
+    res == C_NULL && return Nullable{GitTreeEntry}()
+    return Nullable(GitTreeEntry(res))
+end
+
+"""Lookup a tree entry by its index number.
+
+This returns a `GitTreeEntry` that is owned by the `GitTree`.
+You don't have to free it, but you must not use it after the `GitTree` is released.
+"""
 function lookup(tree::GitTree, idx::Integer)
     res = ccall((:git_tree_entry_byindex, :libgit2), Ptr{Void},
                 (Ref{Void}, Cint), tree.ptr, idx)
@@ -53,6 +70,7 @@ function Base.getindex(tree::GitTree, v::Union{String, Integer})
     isnull(tree_entity) && throw(BoundsError(tree, (v,)))
     return Base.get(tree_entity)
 end
+
 
 """Get the number of entries in the tree."""
 function Base.length(tree::GitTree)
