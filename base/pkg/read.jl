@@ -10,25 +10,60 @@ readstrip(path...) = strip(readstring(joinpath(path...)))
 url(pkg::AbstractString) = readstrip(Dir.path("METADATA"), pkg, "url")
 sha1(pkg::AbstractString, ver::VersionNumber) = readstrip(Dir.path("METADATA"), pkg, "versions", string(ver), "sha1")
 
-function available(names=readdir("METADATA"))
-    pkgs = Dict{String,Dict{VersionNumber,Available}}()
-    for pkg in names
-        isfile("METADATA", pkg, "url") || continue
-        versdir = joinpath("METADATA", pkg, "versions")
-        isdir(versdir) || continue
-        for ver in readdir(versdir)
-            ismatch(Base.VERSION_REGEX, ver) || continue
-            isfile(versdir, ver, "sha1") || continue
-            haskey(pkgs,pkg) || (pkgs[pkg] = Dict{VersionNumber,Available}())
-            pkgs[pkg][convert(VersionNumber,ver)] = Available(
-                readchomp(joinpath(versdir,ver,"sha1")),
-                Reqs.parse(joinpath(versdir,ver,"requires"))
-            )
+using Base.Pkg.Types
+import Base.Pkg.Reqs
+import Base.LibGit2: GitRepo, GitTree, GitBlob, filename, peel, object, content, head
+
+# Adds the `Available` entries to `pkg` for the package in the `pacakage_tree` for each version
+function add_available!(pkgs::Dict, package_tree::GitTree, repo::GitRepo)
+    pkg_name = filename(package_tree)
+    for package_dir_entry in package_tree
+        !isdir(package_dir_entry) && continue # probably the url file so skip
+        filename(package_dir_entry) != "versions" && continue  # skip non "versions" folders
+        # Loop over the folders in "version" now
+        for ver in peel(GitTree, object(repo, package_dir_entry))
+            ver_name = filename(ver)
+            !ismatch(Base.VERSION_REGEX, ver_name) && continue
+            sha_str = ""
+            requires_str = ""
+            for ver_file in peel(GitTree, object(repo, ver))
+                !isfile(ver_file) && continue
+                ver_file_name = filename(ver_file)
+                blob = peel(GitBlob, object(repo, ver_file))
+                if ver_file_name == "requires"
+                     requires_str = unsafe_string(convert(Cstring, content(blob)))
+                elseif ver_file_name == "sha1"
+                    sha_str = unsafe_string(convert(Cstring, content(blob)))
+                end
+            end
+            haskey(pkgs, pkg_name) || (pkgs[pkg_name] = Dict{VersionNumber,Available}())
+            pkgs[pkg_name][convert(VersionNumber, ver_name)] =
+                Available(strip(sha_str), Reqs.parse(split(requires_str, '\n')))
         end
+    end
+end
+
+function available(repo::GitRepo = GitRepo("METADATA"))
+    tree = peel(GitTree, head(repo))
+    pkgs = Dict{String,Dict{VersionNumber,Available}}()
+    for pkg in tree # Package folders
+        !isdir(pkg) && continue
+        pkg_name = filename(pkg)
+        startswith(pkg_name, '.') && continue
+        add_available!(pkgs, peel(GitTree, object(repo, pkg)), repo)
     end
     return pkgs
 end
-available(pkg::AbstractString) = get(available([pkg]),pkg,Dict{VersionNumber,Available}())
+
+function available(pkg::AbstractString)
+    repo = GitRepo("METADATA")
+    tree = peel(GitTree, head(repo))
+    tree_entry = lookup(tree, pkg)
+    pkg_avail = Dict{VersionNumber,Available}()
+    (isnull(tree_entry) || !LibGit2.isdir(tree_entry)) && return pkg_avail
+    add_available!(peel(GitTree, object(repo, pkg_avail)))
+    return pkg_avail
+end
 
 function latest(names=readdir("METADATA"))
     pkgs = Dict{String,Available}()
