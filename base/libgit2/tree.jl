@@ -34,3 +34,14 @@ function object(repo::GitRepo, te::GitTreeEntry)
                    obj_ptr_ptr, repo.ptr, te.ptr)
     return GitAnyObject(obj_ptr_ptr[])
 end
+
+"""Lookup a tree entry by its file name.
+This returns a `GitTreeEntry` that is owned by the `GitTree`.
+You don't have to free it, but you must not use it after the `GitTree` is released.
+"""
+function lookup(tree::GitTree, fname::AbstractString)
+    res = ccall((:git_tree_entry_byname, :libgit2), Ptr{Void},
+                (Ref{Void}, Cstring), tree.ptr, fname)
+    res == C_NULL && return Nullable{GitTreeEntry}()
+    return Nullable(GitTreeEntry(res))
+end
