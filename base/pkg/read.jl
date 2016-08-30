@@ -4,6 +4,8 @@ module Read
 
 import ...LibGit2, ..Cache, ..Reqs, ...Pkg.PkgError, ..Dir
 using ..Types
+import Base.LibGit2: GitRepo, GitTree, GitBlob, filename, peel, object, content, head
+
 
 readstrip(path...) = strip(readstring(joinpath(path...)))
 
@@ -25,7 +27,51 @@ function copypkg(old_pkg)
     return new_pkg
 end
 
-function _available(names)
+
+# Use libgit2 to read the files in the git blobs which avoids traversing so many files
+function _available(repo::GitRepo = GitRepo("METADATA"))
+    tree = peel(GitTree, head(repo))
+    pkgs = Dict{String,Dict{VersionNumber,Available}}()
+    for pkg in tree # Package folders
+        !isdir(pkg) && continue
+        pkg_name = filename(pkg)
+        startswith(pkg_name, '.') && continue
+        add_available!(pkgs, peel(GitTree, object(repo, pkg)), repo, pkg_name)
+    end
+    return pkgs
+end
+
+# Adds the `Available` entries to `pkg` for the package in the `pacakage_tree` for each version
+function add_available!(pkgs::Dict, package_tree::GitTree, repo::GitRepo, pkg_name::String)
+    for package_dir_entry in package_tree
+        !isdir(package_dir_entry) && continue # probably the url file so skip
+        filename(package_dir_entry) != "versions" && continue  # skip non "versions" folders
+        # Loop over the folders in "version" now
+        for ver in peel(GitTree, object(repo, package_dir_entry))
+            ver_name = filename(ver)
+            !ismatch(Base.VERSION_REGEX, ver_name) && continue
+            sha_str = ""
+            requires_str = ""
+            for ver_file in peel(GitTree, object(repo, ver))
+                !isfile(ver_file) && continue
+                ver_file_name = filename(ver_file)
+                blob = peel(GitBlob, object(repo, ver_file))
+                if ver_file_name == "requires"
+                     requires_str = unsafe_string(convert(Cstring, content(blob)))
+                elseif ver_file_name == "sha1"
+                    sha_str = unsafe_string(convert(Cstring, content(blob)))
+                end
+            end
+            haskey(pkgs, pkg_name) || (pkgs[pkg_name] = Dict{VersionNumber,Available}())
+            pkgs[pkg_name][convert(VersionNumber, ver_name)] =
+                Available(strip(sha_str), Reqs.parse(split(requires_str, '\n')))
+        end
+    end
+    return pkgs
+end
+
+# Fall back in case "METADATA" is not a git repo
+function _available(names::Vector{String})
     pkgs = Dict{String,Dict{VersionNumber,Available}}()
     for pkg in names
         isfile("METADATA", pkg, "url") || continue
@@ -60,7 +106,7 @@ function available(cache::AvailableCache = PKG_AVAILABLE_CACHE)
         if length(LibGit2.GitStatus(repo)) == 0
             # Sha does not match, update the cache with the new pkgs
             if cache.sha != sha
-                cache.pkgs = _available(names)
+                cache.pkgs = _available(repo)
                 cache.sha = sha
             end
             # Copy because some functions that uses this data mutate state, like Pkg.Query.requirements

@@ -2,7 +2,7 @@
 
 module LibGit2
 
-import Base: merge!, cat, ==
+import Base: merge!, cat, ==, get, isdir, isfile
 
 export with, GitRepo, GitConfig
 
