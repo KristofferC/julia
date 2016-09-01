@@ -22,14 +22,6 @@ end
 
 PKG_AVAILABLE_CACHE = AvailableCache("", Dict{String, Dict{VersionNumber, Available}}())
 
-function copypkg(old_pkg)
-    new_pkg = Dict{String, Dict{VersionNumber, Available}}()
-    for (k, v) in old_pkg
-        new_pkg[k] = copy(old_pkg[k])
-    end
-    return new_pkg
-end
-
 function read_version{T <: AbstractString}(s::Vector{T}, i::Int)
     version = s[i]; i += 1
     i += 1 # skip "-----" under the version
@@ -152,7 +144,6 @@ function available(cache::AvailableCache = PKG_AVAILABLE_CACHE)
                         cache.pkgs = available(get_pkgs())
                         cache.sha = sha
                     end
-                    # Copy because some functions that uses this data mutate state, like Pkg.Query.requirements
                     return cache.pkgs
                 end
                 return available(get_pkgs())
