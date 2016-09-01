@@ -72,10 +72,10 @@ function available(cache::AvailableCache = PKG_AVAILABLE_CACHE)
     end
     # Not a git repo so just bail on using cache
     #!(".git" in names) && error("METADATA must be a git repo")
-    return with(LibGit2.GitRepo("METADATA")) do repo
-        with(LibGit2.head(repo)) do head
+    return LibGit2.with(LibGit2.GitRepo("METADATA")) do repo
+        LibGit2.with(LibGit2.head(repo)) do head
             sha = string(Base.LibGit2.Oid(head))
-            with(LibGit2.GitStatus(repo)) do status
+            LibGit2.with(LibGit2.GitStatus(repo)) do status
                 # Only use cache if nothing funky is going on, this should be true in the majority of cases
                 if length(status) == 0
                     # Sha does not match, update the cache with the new pkgs
