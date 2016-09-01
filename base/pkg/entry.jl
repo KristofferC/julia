@@ -507,8 +507,8 @@ function resolve(
     missing = []
     for (pkg,(ver1,ver2)) in changes
         vers = String[]
-        ver1 !== nothing && push!(vers, LibGit2.head(pkg))
-        ver2 !== nothing && push!(vers, Read.sha1(pkg,ver2))
+        ver1 !== nothing && push!(vers,LibGit2.head(pkg))
+        ver2 !== nothing && push!(vers,Read.sha1(pkg,ver2))
         append!(missing,
             map(sha1->(pkg,(ver1,ver2),sha1),
                 Cache.prefetch(pkg, Read.url(pkg), vers)))

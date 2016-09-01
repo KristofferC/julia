@@ -5,9 +5,6 @@ module Read
 import ...LibGit2, ..Cache, ..Reqs, ...Pkg.PkgError, ..Dir
 using ..Types
 
-import Base.LibGit2: GitRepo, GitReference, GitTree, GitBlob, filename, peel, object, content, with, lookup
-
-
 metapkgpath(s::AbstractString) = joinpath(uppercase(string(s[1])), s * ".versions")
 
 url(pkg::AbstractString) = chomp(readline(joinpath(Dir.path("METADATA"), metapkgpath(pkg))))
@@ -59,66 +56,8 @@ function available(names)
     return pkgs
 end
 
-
-
 available(pkg::AbstractString) = get(available([pkg]),pkg,Dict{VersionNumber,Available}())
 
-
-#=
-function _available(repo::GitRepo, repohead::GitReference)
-    pkgs = Dict{String,Dict{VersionNumber,Available}}()
-    with(peel(LibGit2.GitTree, repohead)) do head_tree
-        for first_letter_tree in filter(isdir, head_tree) # A, B, C folders...
-            startswith(filename(first_letter_tree), '.') && continue
-            with(object(repo, first_letter_tree)) do obj
-                with(peel(GitTree, obj)) do pkg_tree
-                    for pkg_entry in filter(isfile, pkg_tree)
-                        pkg_name = filename(pkg_entry)
-                        !endswith(pkg_name, ".versions")  && continue
-                        pkg_name = split(pkg_name, ".versions")[1]
-                        with(object(repo, pkg_entry)) do pkg_obj
-                            with(peel(GitBlob, pkg_obj)) do pkg_blob
-                                lines = split(unsafe_string(convert(Cstring, content(pkg_blob))), '\n')
-                                read_package!(pkgs, lines, pkg_name)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return pkgs
-end
-=#
-
-#=
-function available(pkg::AbstractString)
-    pkg_avail =  Dict{String,Dict{VersionNumber,Available}}()
-    with(GitRepo("METADATA")) do repo
-        with(LibGit2.head(repo)) do repohead # Head
-            startletter = uppercase(string(pkg[1]))
-            with(LibGit2.peel(GitTree, repohead)) do repotree # Base METADATA directory
-                tree_entry = lookup(repotree, startletter)
-                (isnull(tree_entry) || !isdir(get(tree_entry))) && return
-                with(object(repo, get(tree_entry))) do tree_obj
-                    with(LibGit2.peel(GitTree, tree_obj)) do first_letter_tree # A, B, C directory
-                        pkg_entry = lookup(first_letter_tree, pkg * ".versions")
-                        (isnull(pkg_entry) && return) # || !LibGit2.isfile(pkg_entry)) && return
-                        pkg_name = filename(get(tree_entry))
-                        with(object(repo, get(pkg_entry))) do pkg_obj
-                            with(peel(GitBlob, pkg_obj)) do pkg_blob
-                                lines = split(unsafe_string(convert(Cstring, content(pkg_blob))), '\n')
-                                read_package!(pkg_avail, lines, pkg)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    get(pkg_avail, pkg, Dict{VersionNumber,Available}())
-end
-=#
 
 # Uses cached data if not outdated
 function available(cache::AvailableCache = PKG_AVAILABLE_CACHE)
@@ -213,7 +152,7 @@ end
 
 function ispinned(pkg::AbstractString)
     ispath(pkg,".git") || return false
-    with(LibGit2.GitRepo, pkg) do repo
+    LibGit2.with(LibGit2.GitRepo, pkg) do repo
         return ispinned(repo)
     end
 end
@@ -289,7 +228,7 @@ function requires_path(pkg::AbstractString, avail::Dict=available(pkg))
     pkgreq = joinpath(pkg,"REQUIRE")
     ispath(pkg,".git") || return pkgreq
     repo = LibGit2.GitRepo(pkg)
-    head = with(LibGit2.GitRepo, pkg) do repo
+    head = LibGit2.with(LibGit2.GitRepo, pkg) do repo
         LibGit2.isdirty(repo, "REQUIRE") && return pkgreq
         LibGit2.need_update(repo)
         LibGit2.iszero(LibGit2.revparseid(repo, "HEAD:REQUIRE")) && isfile(pkgreq) && return pkgreq
@@ -315,7 +254,7 @@ function installed(avail::Dict=available())
         isinstalled(pkg) || continue
         ap = get(avail,pkg,Dict{VersionNumber,Available}())
         if ispath(pkg,".git")
-            with(LibGit2.GitRepo, pkg) do repo
+            LibGit2.with(LibGit2.GitRepo, pkg) do repo
                 ver = installed_version(pkg, repo, ap)
                 fixed = isfixed(pkg, repo, ap)
                 pkgs[pkg] = (ver, fixed)
