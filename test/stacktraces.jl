@@ -113,17 +113,6 @@ let li = typeof(getfield).name.mt.cache.func::Core.MethodInstance,
     sf = StackFrame(:a, :b, 3, li, false, false, 0),
     repr = string(sf)
     @test repr == " in getfield(...) at b:3"
-
-    # Test show when REPL is throwing an error
-    buf = IOBuffer()
-    repr_error_context = IOContext(buf, :REPLError => true)
-    show(repr_error_context, sf)
-    testbuf = IOBuffer()
-    print_with_color(:bold, testbuf, " — ")
-    print_with_color(Base.err_funcdef_color(), testbuf, "getfield(...)")
-    print(testbuf, "\n    ⌙ at ")
-    print_with_color(Base.err_linfo_color(), testbuf, "b:3")
-    @test takebuf_string(testbuf) == takebuf_string(buf)
 end
 
 let ctestptr = cglobal((:ctest, "libccalltest")),

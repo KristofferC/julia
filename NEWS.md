@@ -19,8 +19,7 @@ Language changes
     One way of doing this is by adding `ENV["JULIA_INFO_COLOR"] = :blue` to the `.juliarc.jl` file.
     For more information regarding customizing colors in the REPL, see this [manual section]( http://docs.julialang.org/en/latest/manual/interacting-with-julia/#customizing-colors).
 
-  * The REPL now prints the backtrace differently with the intention of easier readability.
-    To get the previous format of the  error reporting add `ENV["JULIA_LEGACY_ERRORS"] = true` to your `.juliarc.jl` file.
+  * The REPL now prints the backtrace differently with the intention of better readability.
 
 Breaking changes
 ----------------

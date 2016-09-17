@@ -111,16 +111,12 @@ function ip_matches_func(ip, func::Symbol)
 end
 
 function display_error(io::IO, er, bt)
-    legacy_errs = haskey(ENV, "JULIA_LEGACY_ERRORS")
-    Base.with_output_color(legacy_errs ? :red : :nothing, io) do io
-        # remove REPL-related frames from interactive printing
-        legacy_errs && print(io, "ERROR: ")
-        eval_ind = findlast(addr->Base.REPL.ip_matches_func(addr, :eval), bt)
-        if eval_ind != 0
-            bt = bt[1:eval_ind-1]
-        end
-        showerror(IOContext(io, :REPLError => !legacy_errs), er, bt)
+    # remove REPL-related frames from interactive printing
+    eval_ind = findlast(addr->Base.REPL.ip_matches_func(addr, :eval), bt)
+    if eval_ind != 0
+        bt = bt[1:eval_ind-1]
     end
+    showerror(IOContext(io, :REPLError => true), er, bt)
 end
 
 immutable REPLDisplay{R<:AbstractREPL} <: Display

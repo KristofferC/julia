@@ -1031,7 +1031,7 @@ function show_lambda_types(io::IO, li::Core.MethodInstance)
     isreplerror = get(io, :REPLError, false)
     local sig
     returned_from_do = false
-    Base.with_output_color(isreplerror  ? err_funcdef_color() : :nothing, io) do io
+    Base.with_output_color(isreplerror  ? bt_funcdef_color() : :nothing, io) do io
         if li.specTypes === Tuple
             print(io, li.def.name, "(...)")
             returned_from_do = true

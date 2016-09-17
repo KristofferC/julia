@@ -200,8 +200,13 @@ function showerror(io::IO, ex, bt; backtrace=true)
     finally
         if backtrace
             if get(io, :REPLError, false)
-                print(io, "\nStacktrace:")
-                show_backtrace(io, bt)
+                buffer_bt = IOBuffer()
+                show_backtrace(IOContext(io, buffer_bt), bt)
+                bt_str = takebuf_string(buffer_bt)
+                if !isempty(bt_str)
+                    print(io, "\nStacktrace:")
+                    print(io, bt_str)
+                end
             else
                 Base.with_output_color(:red, io) do io
                     show_backtrace(io, bt)
@@ -578,18 +583,20 @@ end
 
 function show_backtrace(io::IO, t::Vector)
     if get(io, :REPLError, false)
+        n_frames = 0
         stack_counter = 0
+        process_backtrace((a,b) -> n_frames += 1, t)
         process_entry = (last_frame, n) -> begin
             println(io)
             stack_counter += 1
-            print(io, " [", stack_counter, "]")
+            print(io, " [", n_frames - stack_counter + 1, "]")
             show_trace_entry(io, last_frame, n)
         end
     else
         process_entry = (last_frame, n) -> show_trace_entry(io, last_frame, n)
     end
 
-    process_backtrace(process_entry, t, rev  = get(io, :REPLError, false))
+    process_backtrace(process_entry, t)
 end
 
 function show_backtrace(io::IO, t::Vector{Any})
@@ -599,7 +606,7 @@ function show_backtrace(io::IO, t::Vector{Any})
 end
 
 # call process_func on each frame in a backtrace
-function process_backtrace(process_func::Function, t::Vector, limit::Int=typemax(Int); skipC = true, rev = false)
+function process_backtrace(process_func::Function, t::Vector, limit::Int=typemax(Int); skipC = true)
     n = 0
     last_frame = StackTraces.UNKNOWN
     count = 0
