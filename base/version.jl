@@ -245,8 +245,8 @@ function banner(io::IO = STDOUT)
     commit_date = GIT_VERSION_INFO.date_string != "" ? " ($(GIT_VERSION_INFO.date_string))": ""
 
     if have_color
-        tx = "\033[0m\033[1m" # text
-        jl = "\033[0m\033[1m" # julia
+        tx = "\033[0m"  # text
+        jl = "\033[0m"  # julia
         d1 = "\033[34m" # first dot
         d2 = "\033[31m" # second dot
         d3 = "\033[32m" # third dot

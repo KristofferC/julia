@@ -35,6 +35,7 @@ import ..LineEdit:
 abstract AbstractREPL
 
 answer_color(::AbstractREPL) = ""
+display_prefix(::AbstractREPL) = ""
 
 const JULIA_PROMPT = "julia> "
 
@@ -128,6 +129,7 @@ end
 
 function display(d::REPLDisplay, mime::MIME"text/plain", x)
     io = outstream(d.repl)
+    write(io, display_prefix(d.repl))
     Base.have_color && write(io, answer_color(d.repl))
     show(IOContext(io, :limit => true), mime, x)
     println(io)
@@ -259,6 +261,7 @@ type LineEditREPL <: AbstractREPL
     answer_color::String
     shell_color::String
     help_color::String
+    display_prefix::String
     history_file::Bool
     in_shell::Bool
     in_help::Bool
@@ -267,8 +270,8 @@ type LineEditREPL <: AbstractREPL
     specialdisplay
     interface
     backendref::REPLBackendRef
-    LineEditREPL(t,hascolor,prompt_color,input_color,answer_color,shell_color,help_color,history_file,in_shell,in_help,envcolors) =
-        new(t,true,prompt_color,input_color,answer_color,shell_color,help_color,history_file,in_shell,
+    LineEditREPL(t,hascolor,prompt_color,input_color,answer_color,shell_color,help_color,display_prefix,history_file,in_shell,in_help,envcolors) =
+        new(t,true,prompt_color,input_color,answer_color,shell_color,help_color,display_prefix,history_file,in_shell,
             in_help,envcolors,false,nothing)
 end
 outstream(r::LineEditREPL) = r.t
@@ -278,11 +281,12 @@ terminal(r::LineEditREPL) = r.t
 
 LineEditREPL(t::TextTerminal, envcolors = false) =  LineEditREPL(t,
                                               true,
-                                              julia_green,
+                                              Base.text_colors[:light_green],
                                               Base.input_color(),
                                               Base.answer_color(),
-                                              Base.text_colors[:red],
+                                              Base.text_colors[:light_red],
                                               Base.text_colors[:yellow],
+                                              Base.text_colors[:light_blue] * "> " * Base.text_colors[:default],
                                               false, false, false, envcolors)
 
 type REPLCompletionProvider <: CompletionProvider
@@ -608,8 +612,6 @@ function history_reset_state(hist::REPLHistoryProvider)
     end
 end
 LineEdit.reset_state(hist::REPLHistoryProvider) = history_reset_state(hist)
-
-const julia_green = "\033[1m\033[32m"
 
 function return_callback(s)
     ast = Base.syntax_deprecation_warnings(false) do
@@ -969,7 +971,7 @@ type StreamREPL <: AbstractREPL
     waserror::Bool
     StreamREPL(stream,pc,ic,ac) = new(stream,pc,ic,ac,false)
 end
-StreamREPL(stream::IO) = StreamREPL(stream, julia_green, Base.input_color(), Base.answer_color())
+StreamREPL(stream::IO) = StreamREPL(stream, Base.text_colors[:light_green], Base.input_color(), Base.answer_color())
 run_repl(stream::IO) = run_repl(StreamREPL(stream))
 
 outstream(s::StreamREPL) = s.stream
@@ -978,6 +980,8 @@ answer_color(r::LineEditREPL) = r.envcolors ? Base.answer_color() : r.answer_col
 answer_color(r::StreamREPL) = r.answer_color
 input_color(r::LineEditREPL) = r.envcolors ? Base.input_color() : r.input_color
 input_color(r::StreamREPL) = r.input_color
+display_prefix(r::LineEditREPL) = r.display_prefix
+
 
 function ends_with_semicolon(line)
     match = rsearch(line, ';')
