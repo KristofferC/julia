@@ -406,8 +406,8 @@ include("missing.jl")
 # libgit2 support
 include("libgit2/libgit2.jl")
 
-# package manager
-include("pkg/pkg.jl")
+# package manager replacement functions
+include("_pkg.jl")
 
 # sparse matrices, vectors, and sparse linear algebra
 include("sparse/sparse.jl")
@@ -477,6 +477,7 @@ unshift!(Base._included_files, (@__MODULE__, joinpath(@__DIR__, "sysimg.jl")))
 Base.require(:Base64)
 Base.require(:CRC32c)
 Base.require(:Dates)
+Base.require(:Pkg)
 Base.require(:DelimitedFiles)
 Base.require(:FileWatching)
 Base.require(:IterativeEigenSolvers)
