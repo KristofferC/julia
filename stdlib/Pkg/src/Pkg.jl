@@ -88,7 +88,7 @@ function __init__()
     Base.PKG_MODULE_REF[] = Pkg
 
     vers = "v$(VERSION.major).$(VERSION.minor)"
-    pushfirst!(Base.LOAD_PATH, dir)
+    pushfirst!(Base.LOAD_PATH, Pkg.dir)
     pushfirst!(Base.LOAD_CACHE_PATH, abspath(Dir._pkgroot(), "lib", vers))
 end
 

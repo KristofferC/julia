@@ -1,6 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 import Pkg.PkgError
+using LibGit2
 using Random: randstring
 
 function capture_stdout(f::Function)
@@ -724,3 +725,4 @@ for t = 1:1_000
         @test (v ∈ a && v ∈ b) ? (v ∈ i) : (v ∉ i)
     end
 end
+

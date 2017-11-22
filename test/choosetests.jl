@@ -48,7 +48,7 @@ function choosetests(choices = [])
         "combinatorics", "sysinfo", "env", "rounding", "ranges", "mod2pi",
         "euler", "show",
         "errorshow", "sets", "goto", "llvmcall", "llvmcall2", "grisu",
-        "some", "meta", "stacktraces", "libgit2", "docs",
+        "some", "meta", "stacktraces", "docs",
         "markdown", "misc", "threads",
         "enums", "cmdlineargs", "i18n", "int",
         "checked", "bitset", "floatfuncs", "compile", "inline",
@@ -121,7 +121,7 @@ function choosetests(choices = [])
         prepend!(tests, compilertests)
     end
 
-    net_required_for = ["socket", "stdlib", "libgit2"]
+    net_required_for = ["socket", "stdlib", "LibGit2"]
     net_on = true
     try
         ipa = getipaddr()
