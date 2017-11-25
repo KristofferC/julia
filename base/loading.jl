@@ -87,9 +87,14 @@ macro return_if_file(path)
     end
 end
 
+const find_package_override = Ref{Any}()
 function find_package(name::String)
+    if isassigned(find_package_override)
+        path = find_package_override[](name)
+        path != nothing && return path
+    end
     endswith(name, ".jl") && (name = chop(name, 0, 3))
-    for dir in [isassigned(_Pkg.dir) ? _Pkg.dir[]() : []; LOAD_PATH]
+    for dir in LOAD_PATH
         dir = abspath(dir)
         @return_if_file joinpath(dir, "$name.jl")
         @return_if_file joinpath(dir, "$name.jl", "src", "$name.jl")

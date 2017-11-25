@@ -4,7 +4,7 @@ module REPLCompletions
 
 export completions, shell_completions, bslash_completions
 
-import Base._Pkg
+# import Base._Pkg
 using Base.Meta
 
 function completes_global(x, name)
@@ -554,7 +554,8 @@ function completions(string, pos)
         # also search for packages
         s = string[startpos:pos]
         if dotpos <= startpos
-            for dir in [_Pkg.dir[](); LOAD_PATH; pwd()]
+            # TODO Pkg3 directory listing
+            for dir in [LOAD_PATH; pwd()]
                 dir isa AbstractString && isdir(dir) || continue
                 for pname in readdir(dir)
                     if pname[1] != '.' && pname != "METADATA" &&
