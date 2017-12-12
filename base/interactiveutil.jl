@@ -330,7 +330,7 @@ function versioninfo(io::IO=STDOUT; verbose::Bool=false, packages::Bool=false)
         println(io, "Packages:")
         println(io, "  Package Directory: ", _Pkg.dir[]())
         print(io, "  Package Status:")
-        if isdir(_Pkg.dir[]())
+        if false # isdir(_Pkg.dir[]())
             println(io, "")
             _Pkg.status[](io)
         else

@@ -60,7 +60,6 @@ function.
 
 include("bindings.jl")
 
-import Base._Pkg
 import Base.Markdown: @doc_str, MD
 import Base.Meta: quot, isexpr
 import Base: Callable
@@ -417,8 +416,8 @@ function summarize(io::IO, T::DataType, binding)
 end
 
 function summarize(io::IO, m::Module, binding)
-    readme = _Pkg.dir[](string(m), "README.md")
-    if isfile(readme)
+    #readme = _Pkg.dir[](string(m), "README.md")
+    if  false # isfile(readme)
         println(io, "Displaying the `README.md` for the module instead.\n")
         println(io, "---\n")
         println(io, read(readme, String))

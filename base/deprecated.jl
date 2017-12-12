@@ -1267,8 +1267,6 @@ export conv, conv2, deconv, filt, filt!, xcorr
 @deprecate_moved watch_file "FileWatching" true true
 @deprecate_moved FileMonitor "FileWatching" true true
 
-@deprecate_binding Pkg nothing true ", run `using Pkg` instead"
-
 @deprecate_moved crc32c "CRC32c" true true
 
 @deprecate_moved DateTime "Dates" true true
