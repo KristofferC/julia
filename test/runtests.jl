@@ -18,8 +18,13 @@ else
 end
 
 function test_path(test)
-    if test in STDLIBS
-        return joinpath(STDLIB_DIR, test, "test", "runtests")
+    t = split(test, '/')
+    if t[1] in STDLIBS
+        if length(t) == 2
+            return joinpath(STDLIB_DIR, t[1], "test", t[2])
+        else
+            return joinpath(STDLIB_DIR, t[1], "test", "runtests")
+        end
     else
         return joinpath(@__DIR__, test)
     end
@@ -27,7 +32,7 @@ end
 
 # Check all test files exist
 isfiles = isfile.(test_path.(tests) .* ".jl")
-if any(equalto(false), isfiles)
+if !all(isfiles)
     error("did not find test files for the following tests: ",
           join(tests[.!(isfiles)], ", "))
 end
