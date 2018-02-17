@@ -130,6 +130,7 @@ function choosetests(choices = [])
 
 
     explicit_pkg =  "Pkg/pkg" in tests
+    explicit_pkg3 =  "Pkg3/pkg" in tests
     explicit_libgit2 =  "LibGit2/online" in tests
     new_tests = String[]
     for test in tests
@@ -145,6 +146,7 @@ function choosetests(choices = [])
     filter!(x -> (x != "stdlib" && !(x in STDLIBS)) , tests)
     prepend!(tests, new_tests)
     explicit_pkg || filter!(x -> x != "Pkg/pkg", tests)
+    explicit_pkg3 || filter!(x -> x != "Pkg3/pkg", tests)
     explicit_libgit2 || filter!(x -> x != "LibGit2/online", tests)
 
     # do ambiguous first to avoid failing if ambiguities are introduced by other tests
