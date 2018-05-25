@@ -245,12 +245,16 @@ function binunpack(s::String)
     return PkgId(UUID(uuid), name)
 end
 
-function identify_package(where::Module, name::String)::Union{Nothing,PkgId}
+function identify_package(where::Module, name::String,)::Union{Nothing,PkgId}
     identify_package(PkgId(where), name)
 end
 
 function identify_package(where::PkgId, name::String)::Union{Nothing,PkgId}
+    @debug "is where.name $(where.name) equal to name: $name?"
     where.name === name && return where
+    if where.uuid === nothing
+        @debug "Need to identify the package..."
+    end
     where.uuid === nothing && return identify_package(name)
     for env in load_path()
         found_or_uuid = manifest_deps_get(env, where, name)
@@ -262,6 +266,7 @@ end
 
 function identify_package(name::String)::Union{Nothing,PkgId}
     for env in load_path()
+        @debug "Looking in $env"
         found_or_uuid = project_deps_get(env, name)
         found_or_uuid isa UUID && return PkgId(found_or_uuid, name)
         found_or_uuid && return PkgId(name)
@@ -315,10 +320,14 @@ function env_project_file(env::String)::Union{Bool,String}
     if isdir(env)
         for proj in project_names
             project_file = joinpath(env, proj)
-            isfile_casesensitive(project_file) && return project_file
+            isfile_casesensitive(project_file) && begin
+                @debug "®project_file is our project"
+                return project_file
+            end
         end
         return true
     elseif basename(env) in project_names && isfile_casesensitive(env)
+        @debug "$env is our env"
         return env
     end
     return false
@@ -326,9 +335,12 @@ end
 
 function project_deps_get(env::String, name::String)::Union{Bool,UUID}
     project_file = env_project_file(env)
+    @debug "project_deps_get: $project_file"
     if project_file isa String
+        @debug "explicit project"
         return explicit_project_deps_get(project_file, name)
     end
+    @debug "implicit project"
     project_file && implicit_project_deps_get(env, name)
 end
 
@@ -483,6 +495,7 @@ end
 #  - `uuid` means: found `name` with `uuid` in project file
 
 function explicit_project_deps_get(project_file::String, name::String)::Union{Bool,UUID}
+    @debug "Looking for $name in $project_file"
     open(project_file) do io
         root_name = nothing
         root_uuid = dummy_uuid(project_file)
@@ -499,7 +512,10 @@ function explicit_project_deps_get(project_file::String, name::String)::Union{Bo
                 end
             elseif state == :deps
                 if (m = match(re_key_to_string, line)) != nothing
-                    m.captures[1] == name && return UUID(m.captures[2])
+                    if m.captures[1] == name
+                        @debug "Found $name in $project_file with uuid $(UUID(m.captures[2]))"
+                        return UUID(m.captures[2])
+                    end
                 end
             elseif occursin(re_section, line)
                 state = occursin(re_section_deps, line) ? :deps : :other
@@ -859,6 +875,7 @@ all platforms, including those with case-insensitive filesystems like macOS and
 Windows.
 """
 function require(into::Module, mod::Symbol)
+    @debug "Loading $mod into $into"
     uuidkey = identify_package(into, String(mod))
     # Core.println("require($(PkgId(into)), $mod) -> $uuidkey")
     uuidkey === nothing &&
@@ -866,6 +883,7 @@ function require(into::Module, mod::Symbol)
     if _track_dependencies[]
         push!(_require_dependencies, (into, binpack(uuidkey), 0.0))
     end
+    @debug "identified package as $uuidkey"
     return require(uuidkey)
 end
 
@@ -877,6 +895,7 @@ function require(uuidkey::PkgId)
             invokelatest(callback, uuidkey)
         end
     end
+    @debug "returning the existing module"
     return root_module(uuidkey)
 end
 
