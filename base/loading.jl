@@ -245,31 +245,103 @@ function binunpack(s::String)
     return PkgId(UUID(uuid), name)
 end
 
-function identify_package(where::Module, name::String,)::Union{Nothing,PkgId}
-    identify_package(PkgId(where), name)
+
+# Code loading happens in two stages. Identification and location.
+#
+# Identification
+#################
+# Identification is the task of mapping the name of the module and the parent module
+# that the module is loaded into to a UUID.
+# This can be done by the following mechanicms:
+# If the load happens at "top level" (Main)
+#     - Finding the module in the current active Project.toml file.
+#        We then just read the UUID from there.
+#
+# If the UUID is already loaded, we are done. Otherwise we need to
+# find the location of the file we want to load.
+#
+# Location
+###########
+# Location is the task of mapping a UUID to a filepath which we then load.
+# It happens in the following ways:
+#    - If the
+
+module IdentifySuccessReason
+@enum(_IdentifySuccessReason,
+IN_PROJECT_FOUND_UUID, # Found the name in a project file and a UUID
+IN_PROJECT_NO_UUID,    # Found the name in a project but no UUID
+# SAME_NAME_NAME # imported a package with the same name as the module imported into
+FAIL,
+)
 end
 
-function identify_package(where::PkgId, name::String)::Union{Nothing,PkgId}
+
+
+struct IdentifyStage
+    typ::
+    path::String
+end
+
+struct LocationStage
+    typ
+    path::String
+end
+
+# If sucess, last one is it
+struct LoadingBacktrace
+    identify::Vector
+    locate::Vector
+end
+LoadingBacktrace() = LoadingBacktrace([], [])
+
+function loadsucess!(bt::LoadingBacktrace, reason::IdentifySuccessReason._IdentifySuccessReason, path::String="")
+    push!(bt, (reason, path))
+    bt.load_success = true
+end
+
+#function loadsucess!(bt::LoadingBacktrace, reason::IdentifySuccessReason._IdentifySuccessReason, path::String="")
+#    push!(bt, (reason, path))
+#end
+
+function Base.show(io::IO, bt::LoadingBacktrace)
+    for (reason, path) in bt.identify
+        println(io, reason, ":", path)
+    end
+end
+
+const MaybeBt = Union{Nothing, LoadingBacktrace}
+
+function identify_package(where::Module, name::String, bt::MaybeBt=nothing)::Union{Nothing,PkgId}
+    identify_package(PkgId(where), name, bt)
+end
+
+function identify_package(where::PkgId, name::String, bt::MaybeBt=nothing)::Union{Nothing,PkgId}
     @debug "is where.name $(where.name) equal to name: $name?"
     where.name === name && return where
     if where.uuid === nothing
         @debug "Need to identify the package..."
     end
-    where.uuid === nothing && return identify_package(name)
+    where.uuid === nothing && return identify_package(name, bt)
     for env in load_path()
-        found_or_uuid = manifest_deps_get(env, where, name)
+        found_or_uuid = manifest_deps_get(env, where, name, bt)
         found_or_uuid isa UUID && return PkgId(found_or_uuid, name)
         found_or_uuid && return nothing
     end
     return nothing
 end
 
-function identify_package(name::String)::Union{Nothing,PkgId}
+function identify_package(name::String, bt::MaybeBt=nothing)::Union{Nothing,PkgId}
     for env in load_path()
         @debug "Looking in $env"
-        found_or_uuid = project_deps_get(env, name)
-        found_or_uuid isa UUID && return PkgId(found_or_uuid, name)
-        found_or_uuid && return PkgId(name)
+        found_or_uuid = project_deps_get(env, name, bt)
+        if found_or_uuid isa UUID
+            bt !== nothing && push!(bt.identify, (IdentifySuccessReason.IN_PROJECT_FOUND_UUID, env))
+            return PkgId(found_or_uuid, name)
+        elseif found_or_uuid
+            bt !== nothing && push!(bt.identify, (IdentifySuccessReason.IN_PROJECT_NO_UUID, env))
+            return PkgId(name)
+        end
+        bt !== nothing && push!(bt.identify, (IdentifySuccessReason.FAIL, env))
     end
     return nothing
 end
@@ -290,22 +362,24 @@ end
 
 ## package location: given a package identity find file to load ##
 
-function locate_package(pkg::PkgId)::Union{Nothing,String}
+function locate_package(pkg::PkgId, bt::MaybeBt=nothing)::Union{Nothing,String}
     if pkg.uuid === nothing
         for env in load_path()
-            found_or_uuid = project_deps_get(env, pkg.name)
-            found_or_uuid isa UUID &&
-                return locate_package(PkgId(found_or_uuid, pkg.name))
-            found_or_uuid && return implicit_manifest_uuid_path(env, pkg)
+            found_or_uuid = project_deps_get(env, pkg.name, bt)
+            if found_or_uuid isa UUID
+                return locate_package(PkgId(found_or_uuid, pkg.name), bt)
+            elseif found_or_uuid
+                return implicit_manifest_uuid_path(env, pkg, bt)
+            end
         end
     else
         for env in load_path()
-            path = manifest_uuid_path(env, pkg)
+            path = manifest_uuid_path(env, pkg, bt)
             path != nothing && return entry_path(path, pkg.name)
         end
     end
 end
-locate_package(::Nothing) = nothing
+locate_package(::Nothing, bt::MaybeBt=nothing) = nothing
 
 ## generic project & manifest API ##
 
@@ -333,49 +407,52 @@ function env_project_file(env::String)::Union{Bool,String}
     return false
 end
 
-function project_deps_get(env::String, name::String)::Union{Bool,UUID}
+function project_deps_get(env::String, name::String, bt::MaybeBt=nothing)::Union{Bool,UUID}
     project_file = env_project_file(env)
+    @show project_file
     @debug "project_deps_get: $project_file"
     if project_file isa String
         @debug "explicit project"
-        return explicit_project_deps_get(project_file, name)
+        return explicit_project_deps_get(project_file, name, bt)
     end
     @debug "implicit project"
-    project_file && implicit_project_deps_get(env, name)
+    project_file && return implicit_project_deps_get(env, name, bt)
+    return false
 end
 
-function manifest_deps_get(env::String, where::PkgId, name::String)::Union{Bool,UUID}
+function manifest_deps_get(env::String, where::PkgId, name::String, bt::MaybeBt=nothing)::Union{Bool,UUID}
     @assert where.uuid !== nothing
     project_file = env_project_file(env)
     if project_file isa String
-        proj_name, proj_uuid = project_file_name_uuid_path(project_file, where.name)
+        proj_name, proj_uuid = project_file_name_uuid_path(project_file, where.name, bt)
         if proj_name == where.name && proj_uuid == where.uuid
             # `where` matches the project, use deps as manifest
-            found_or_uuid = explicit_project_deps_get(project_file, name)
+            found_or_uuid = explicit_project_deps_get(project_file, name, bt)
             return found_or_uuid isa UUID ? found_or_uuid : true
         end
         # look for `where` stanza in manifest file
-        manifest_file = project_file_manifest_path(project_file)
+        manifest_file = project_file_manifest_path(project_file, bt)
         if isfile_casesensitive(manifest_file)
-            return explicit_manifest_deps_get(manifest_file, where.uuid, name)
+            return explicit_manifest_deps_get(manifest_file, where.uuid, name, bt)
         end
         return false # `where` stanza not found
     end
-    project_file && implicit_manifest_deps_get(env, where, name)
+    project_file && return implicit_manifest_deps_get(env, where, name, bt)
+    return false
 end
 
-function manifest_uuid_path(env::String, pkg::PkgId)::Union{Nothing,String}
+function manifest_uuid_path(env::String, pkg::PkgId, bt::MaybeBt=nothing)::Union{Nothing,String}
     project_file = env_project_file(env)
     if project_file isa String
-        proj_name, proj_uuid, path = project_file_name_uuid_path(project_file, pkg.name)
+        proj_name, proj_uuid, path = project_file_name_uuid_path(project_file, pkg.name, bt)
         proj_name == pkg.name && proj_uuid == pkg.uuid && return path
-        manifest_file = project_file_manifest_path(project_file)
+        manifest_file = project_file_manifest_path(project_file, bt)
         if isfile_casesensitive(manifest_file)
-            return explicit_manifest_uuid_path(manifest_file, pkg)
+            return explicit_manifest_uuid_path(manifest_file, pkg, bt)
         end
         return nothing
     end
-    project_file ? implicit_manifest_uuid_path(env, pkg) : nothing
+    project_file ? implicit_manifest_uuid_path(env, pkg, bt) : nothing
 end
 
 # regular expressions for scanning project & manifest files
@@ -395,7 +472,7 @@ const re_deps_to_any        = r"^\s*deps\s*=\s*(.*?)\s*(?:#|$)"
 
 # find project file's top-level UUID entry (or nothing)
 function project_file_name_uuid_path(project_file::String,
-    name::String)::Tuple{String,UUID,String}
+    name::String, bt::MaybeBt=nothing)::Tuple{String,UUID,String}
     open(project_file) do io
         uuid = dummy_uuid(project_file)
         path = joinpath("src", "$name.jl")
@@ -415,7 +492,7 @@ function project_file_name_uuid_path(project_file::String,
 end
 
 # find project file's corresponding manifest file
-function project_file_manifest_path(project_file::String)::Union{Nothing,String}
+function project_file_manifest_path(project_file::String, bt::MaybeBt=nothing)::Union{Nothing,String}
     open(project_file) do io
         dir = abspath(dirname(project_file))
         for line in eachline(io)
@@ -434,7 +511,7 @@ function project_file_manifest_path(project_file::String)::Union{Nothing,String}
 end
 
 # find `name` in a manifest file and return its UUID
-function manifest_file_name_uuid(manifest_file::String, name::String, io::IO)::Union{Nothing,UUID}
+function manifest_file_name_uuid(manifest_file::String, name::String, io::IO, bt::MaybeBt=nothing)::Union{Nothing,UUID}
     uuid = name′ = nothing
     for line in eachline(io)
         if (m = match(re_section_capture, line)) != nothing
@@ -494,7 +571,7 @@ end
 #  - `true` means: found `name` without UUID (can't happen in explicit projects)
 #  - `uuid` means: found `name` with `uuid` in project file
 
-function explicit_project_deps_get(project_file::String, name::String)::Union{Bool,UUID}
+function explicit_project_deps_get(project_file::String, name::String, bt::MaybeBt=nothing)::Union{Bool,UUID}
     @debug "Looking for $name in $project_file"
     open(project_file) do io
         root_name = nothing
@@ -530,7 +607,7 @@ end
 #  - `true` means: found `where` but `name` not in its deps
 #  - `uuid` means: found `where` and `name` mapped to `uuid` in its deps
 
-function explicit_manifest_deps_get(manifest_file::String, where::UUID, name::String)::Union{Bool,UUID}
+function explicit_manifest_deps_get(manifest_file::String, where::UUID, name::String, bt::MaybeBt=nothing)::Union{Bool,UUID}
     open(manifest_file) do io
         uuid = deps = nothing
         state = :other
@@ -569,7 +646,7 @@ function explicit_manifest_deps_get(manifest_file::String, where::UUID, name::St
 end
 
 # find `uuid` stanza, return the corresponding path
-function explicit_manifest_uuid_path(manifest_file::String, pkg::PkgId)::Union{Nothing,String}
+function explicit_manifest_uuid_path(manifest_file::String, pkg::PkgId, bt::MaybeBt=nothing)::Union{Nothing,String}
     open(manifest_file) do io
         uuid = name = path = hash = nothing
         for line in eachline(io)
@@ -606,11 +683,12 @@ end
 #  - `false` means: did not find `name`
 #  - `true` means: found `name` without project file
 #  - `uuid` means: found `name` with project file with real or dummy `uuid`
-function implicit_project_deps_get(dir::String, name::String)::Union{Bool,UUID}
+function implicit_project_deps_get(dir::String, name::String, bt::MaybeBt=nothing)::Union{Bool,UUID}
     path, project_file = entry_point_and_project_file(dir, name)
     project_file == nothing && return path != nothing
     proj_name, proj_uuid = project_file_name_uuid_path(project_file, name)
     proj_name == name && proj_uuid
+    return false
 end
 
 # look for an entry-point for `where` by name, check that UUID matches
@@ -618,7 +696,7 @@ end
 #  - `false` means: did not find `where`
 #  - `true` means: found `where` but `name` not in its deps
 #  - `uuid` means: found `where` and `name` mapped to `uuid` in its deps
-function implicit_manifest_deps_get(dir::String, where::PkgId, name::String)::Union{Bool,UUID}
+function implicit_manifest_deps_get(dir::String, where::PkgId, name::String, bt::MaybeBt=nothing)::Union{Bool,UUID}
     @assert where.uuid !== nothing
     project_file = entry_point_and_project_file(dir, where.name)[2]
     project_file === nothing && return false
@@ -629,7 +707,7 @@ function implicit_manifest_deps_get(dir::String, where::PkgId, name::String)::Un
 end
 
 # look for an entry-point for `pkg` and return its path if UUID matches
-function implicit_manifest_uuid_path(dir::String, pkg::PkgId)::Union{Nothing,String}
+function implicit_manifest_uuid_path(dir::String, pkg::PkgId, bt::MaybeBt=nothing)::Union{Nothing,String}
     path, project_file = entry_point_and_project_file(dir, pkg.name)
     pkg.uuid === nothing && project_file === nothing && return path
     pkg.uuid === nothing || project_file === nothing && return nothing
@@ -875,8 +953,10 @@ all platforms, including those with case-insensitive filesystems like macOS and
 Windows.
 """
 function require(into::Module, mod::Symbol)
-    @debug "Loading $mod into $into"
-    uuidkey = identify_package(into, String(mod))
+    bt = LoadingBacktrace()
+    @show "Loading $mod into $into"
+    uuidkey = identify_package(into, String(mod), bt)
+    println(bt)
     # Core.println("require($(PkgId(into)), $mod) -> $uuidkey")
     uuidkey === nothing &&
         throw(ArgumentError("Module $mod not found in current path.\nRun `Pkg.add(\"$mod\")` to install the $mod package."))
@@ -888,6 +968,7 @@ function require(into::Module, mod::Symbol)
 end
 
 function require(uuidkey::PkgId)
+    println("Requiring $uuidkey")
     if !root_module_exists(uuidkey)
         _require(uuidkey)
         # After successfully loading, notify downstream consumers
@@ -946,6 +1027,7 @@ function unreference_module(key::PkgId)
 end
 
 function _require(pkg::PkgId)
+    println("Requiring $pkg")
     # handle recursive calls to require
     loading = get(package_locks, pkg, false)
     if loading !== false
