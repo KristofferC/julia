@@ -399,7 +399,7 @@ function load_InteractiveUtils(mod::Module=Main)
     if !isdefined(MainInclude, :InteractiveUtils)
         try
             # TODO: we have to use require_stdlib here because it is a dependency of REPL, but we would sort of prefer not to
-            let InteractiveUtils = require_stdlib(PkgId(UUID(0xb77e0a4c_d291_57a0_90e8_8db25a27a240), "InteractiveUtils"))
+            let InteractiveUtils = require(PkgId(UUID(0xb77e0a4c_d291_57a0_90e8_8db25a27a240), "InteractiveUtils"))
                 MainInclude.InteractiveUtils = InteractiveUtils
             end
         catch ex
@@ -413,7 +413,7 @@ end
 function load_REPL()
     # load interactive-only libraries
     try
-        return Base.require_stdlib(PkgId(UUID(0x3fa0cd96_eef1_5676_8a61_b3b8758bbffb), "REPL"))
+        return Base.require(PkgId(UUID(0x3fa0cd96_eef1_5676_8a61_b3b8758bbffb), "REPL"))
     catch ex
         @warn "Failed to import REPL" exception=(ex, catch_backtrace())
     end

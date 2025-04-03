@@ -717,7 +717,7 @@ function runtests(tests = ["all"]; ncores::Int = ceil(Int, Sys.CPU_THREADS / 2),
         nothing
     catch
         buf = PipeBuffer()
-        let InteractiveUtils = Base.require_stdlib(PkgId(UUID(0xb77e0a4c_d291_57a0_90e8_8db25a27a240), "InteractiveUtils"))
+        let InteractiveUtils = Base.require(PkgId(UUID(0xb77e0a4c_d291_57a0_90e8_8db25a27a240), "InteractiveUtils"))
             @invokelatest InteractiveUtils.versioninfo(buf)
         end
         error("A test has failed. Please submit a bug report (https://github.com/JuliaLang/julia/issues)\n" *

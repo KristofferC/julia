@@ -1713,7 +1713,7 @@ end
         cc = Base.compilecache(Base64_key)
         @test Base.isprecompiled(Base64_key, cachepaths=String[cc[1]])
         empty!(DEPOT_PATH)
-        Base.require_stdlib(Base64_key)
+        Base.require(Base64_key)
         push!(DEPOT_PATH, depot_path)
         append!(DEPOT_PATH, original_depot_path)
         oldloaded = @lock(Base.require_lock, length(get(Base.loaded_precompiles, Base64_key, Module[])))

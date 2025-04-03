@@ -349,7 +349,7 @@ function check_for_missing_packages_and_run_hooks(ast)
     mods = modules_to_be_loaded(ast)
     filter!(mod -> isnothing(Base.identify_package(String(mod))), mods) # keep missing modules
     if !isempty(mods)
-        isempty(install_packages_hooks) && load_pkg()
+        isempty(install_packages_hooks) # && load_pkg()
         for f in install_packages_hooks
             Base.invokelatest(f, mods) && return
         end
@@ -539,7 +539,7 @@ function display(d::REPLDisplay, mime::MIME"text/plain", x)
     return nothing
 end
 
-display(d::REPLDisplay, x) = display(d, MIME("text/plain"), x)
+# display(d::REPLDisplay, x) = display(d, MIME("text/plain"), x)
 
 function print_response(repl::AbstractREPL, response, show_value::Bool, have_color::Bool)
     repl.waserror = response[2]
@@ -1325,6 +1325,7 @@ function setup_interface(
         on_enter = function (s::MIState)
                 # This is hit when the user tries to execute a command before the real Pkg mode has been
                 # switched to. Ok to do this even if Pkg is loading on the other task because of the loading lock.
+                #=
                 REPLExt = load_pkg()
                 if REPLExt isa Module && isdefined(REPLExt, :PkgCompletionProvider)
                     for mode in repl.interface.modes
@@ -1337,6 +1338,7 @@ function setup_interface(
                         end
                     end
                 end
+                =#
                 return true
             end,
         sticky = true)
@@ -1422,6 +1424,7 @@ function setup_interface(
                 # load Pkg on another thread if available so that typing in the dummy Pkg prompt
                 # isn't blocked, but instruct the main REPL task to do the transition via s.async_channel
                 t_replswitch = Threads.@spawn begin
+                    #=
                     REPLExt = load_pkg()
                     if REPLExt isa Module && isdefined(REPLExt, :PkgCompletionProvider)
                         put!(s.async_channel,
@@ -1443,6 +1446,7 @@ function setup_interface(
                             end
                         )
                     end
+                    =#
                 end
                 Base.errormonitor(t_replswitch)
             else

@@ -43,7 +43,7 @@ abstract type TextTerminal <: AbstractTerminal end
 # Terminal interface:
 pipe_reader(::TextTerminal) = error("Unimplemented")
 pipe_writer(::TextTerminal) = error("Unimplemented")
-displaysize(::TextTerminal) = error("Unimplemented")
+# displaysize(::TextTerminal) = error("Unimplemented")
 cmove(t::TextTerminal, x, y) = error("Unimplemented")
 getX(t::TextTerminal) = error("Unimplemented")
 getY(t::TextTerminal) = error("Unimplemented")
@@ -74,8 +74,8 @@ cmove_col(t::TextTerminal, c) = cmove(c, getY(t))
 hascolor(::TextTerminal) = false
 
 # Utility Functions
-width(t::TextTerminal) = (displaysize(t)::Tuple{Int,Int})[2]
-height(t::TextTerminal) = (displaysize(t)::Tuple{Int,Int})[1]
+width(t::TextTerminal) = (displaysize(t.out_stream)::Tuple{Int,Int})[2]
+height(t::TextTerminal) = (displaysize(t.out_stream)::Tuple{Int,Int})[1]
 
 # For terminals with buffers
 flush(t::TextTerminal) = nothing
@@ -146,13 +146,13 @@ end
 @eval clear_line(t::UnixTerminal) = write(t.out_stream, $"\r$(CSI)0K")
 beep(t::UnixTerminal) = write(t.err_stream,"\x7")
 
-Base.displaysize(t::UnixTerminal) = displaysize(t.out_stream)::Tuple{Int,Int}
+# Base.displaysize(t::UnixTerminal) = displaysize(t.out_stream)::Tuple{Int,Int}
 
 hascolor(t::TTYTerminal) = get(t.out_stream, :color, false)::Bool
 
 # use cached value of have_color
-Base.in(key_value::Pair, t::TTYTerminal) = in(key_value, pipe_writer(t))
-Base.haskey(t::TTYTerminal, key) = haskey(pipe_writer(t), key)
+# Base.in(key_value::Pair, t::TTYTerminal) = in(key_value, pipe_writer(t))
+# Base.haskey(t::TTYTerminal, key) = haskey(pipe_writer(t), key)
 Base.getindex(t::TTYTerminal, key) = getindex(pipe_writer(t), key)
 Base.get(t::TTYTerminal, key, default) = get(pipe_writer(t), key, default)
 

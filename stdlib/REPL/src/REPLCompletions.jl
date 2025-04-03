@@ -577,6 +577,7 @@ end
 
 struct REPLCacheToken end
 
+#=
 struct REPLInterpreter <: CC.AbstractInterpreter
     limit_aggressive_inference::Bool
     world::UInt
@@ -748,7 +749,8 @@ function repl_eval_ex(@nospecialize(ex), context_module::Module; limit_aggressiv
     resolve_toplevel_symbols!(src, context_module)
     # construct top-level `MethodInstance`
     mi = ccall(:jl_method_instance_for_thunk, Ref{Core.MethodInstance}, (Any, Any), src, context_module)
-
+    return nothing
+    #=
     interp = REPLInterpreter(limit_aggressive_inference)
     result = CC.InferenceResult(mi)
     frame = CC.InferenceState(result, src, #=cache=#:no, interp)
@@ -760,6 +762,7 @@ function repl_eval_ex(@nospecialize(ex), context_module::Module; limit_aggressiv
     result = frame.result.result
     result === Union{} && return nothing # for whatever reason, callers expect this as the Bottom and/or Top type instead
     return result
+    =#
 end
 
 # `COMPLETION_WORLD[]` will be initialized within `__init__`
@@ -774,7 +777,7 @@ const COMPLETION_WORLD = Ref{UInt}(typemax(UInt))
 # assuming no invalidation will happen before initializing REPL.
 # Once REPL is loaded, `REPLInterpreter` will be resilient against future invalidations.
 code_typed(CC.typeinf, (REPLInterpreter, CC.InferenceState))
-
+=#
 # Method completion on function call expression that look like :(max(1))
 MAX_METHOD_COMPLETIONS::Int = 40
 function _complete_methods(ex_org::Expr, context_module::Module, shift::Bool)
@@ -1591,7 +1594,7 @@ function shell_completions(string, pos, hint::Bool=false)
 end
 
 function __init__()
-    COMPLETION_WORLD[] = Base.get_world_counter()
+    # COMPLETION_WORLD[] = Base.get_world_counter()
     return nothing
 end
 
