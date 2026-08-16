@@ -651,6 +651,110 @@ function show_shadowed_type_hint(io::IO, @nospecialize(f), san_arg_types_param::
     end
 end
 
+function _type_binding_generation(tn::Core.TypeName,
+                                  generations::IdDict{Core.TypeName,UInt})
+    return get!(generations, tn) do
+        # Reserve the endpoints for current and unresolvable bindings.
+        _resolves_to_self(tn) && return typemax(UInt)
+        world = check_world_bounded(tn)
+        world === nothing ? UInt(0) : UInt(first(world))
+    end
+end
+
+function _has_old_type_binding(@nospecialize(t), generations::IdDict{Core.TypeName,UInt})
+    if t isa UnionAll
+        return _has_old_type_binding(t.var.lb, generations) ||
+               _has_old_type_binding(t.var.ub, generations) ||
+               _has_old_type_binding(t.body, generations)
+    elseif t isa TypeVar
+        return false
+    elseif t isa DataType
+        generation = _type_binding_generation(t.name, generations)
+        generation != 0 && generation != typemax(UInt) && return true
+        return any(p -> _has_old_type_binding(p, generations), t.parameters)
+    elseif t isa Union
+        return _has_old_type_binding(getfield(t, :a), generations) ||
+               _has_old_type_binding(getfield(t, :b), generations)
+    elseif t isa Core.TypeofVararg
+        return (isdefined(t, :T) && _has_old_type_binding(getfield(t, :T), generations)) ||
+               (isdefined(t, :N) && _has_old_type_binding(getfield(t, :N), generations))
+    elseif t isa TypeEq || t isa Core.TypeEgal
+        return _has_old_type_binding(type_parameter(t), generations)
+    end
+    return false
+end
+
+function _older_replaced_signature(@nospecialize(a), @nospecialize(b),
+                                   a_tvars::Vector{TypeVar}, b_tvars::Vector{TypeVar},
+                                   binding_order::Ref{Int},
+                                   generations::IdDict{Core.TypeName,UInt})
+    a === b && return true
+    if a isa UnionAll
+        b isa UnionAll || return false
+        _older_replaced_signature(a.var.lb, b.var.lb, a_tvars, b_tvars,
+                                  binding_order, generations) || return false
+        _older_replaced_signature(a.var.ub, b.var.ub, a_tvars, b_tvars,
+                                  binding_order, generations) || return false
+        push!(a_tvars, a.var)
+        push!(b_tvars, b.var)
+        same_body = _older_replaced_signature(a.body, b.body, a_tvars, b_tvars,
+                                              binding_order, generations)
+        pop!(a_tvars)
+        pop!(b_tvars)
+        return same_body
+    elseif a isa TypeVar
+        b isa TypeVar || return false
+        a_idx = findlast(t -> t === a, a_tvars)
+        b_idx = findlast(t -> t === b, b_tvars)
+        return a_idx !== nothing && a_idx == b_idx
+    elseif a isa DataType
+        b isa DataType || return false
+        if a.name !== b.name
+            isdefined(a.name, :module) && isdefined(b.name, :module) || return false
+            a.name.module === b.name.module && a.name.name === b.name.name || return false
+            a_generation = _type_binding_generation(a.name, generations)
+            b_generation = _type_binding_generation(b.name, generations)
+            (a_generation == 0 || b_generation == 0 || a_generation == b_generation) && return false
+            order = a_generation < b_generation ? -1 : 1
+            # Mixed old/new bindings do not dominate one another.
+            binding_order[] == 0 || binding_order[] == order || return false
+            binding_order[] = order
+        end
+        length(a.parameters) == length(b.parameters) || return false
+        for i in eachindex(a.parameters)
+            _older_replaced_signature(a.parameters[i], b.parameters[i], a_tvars, b_tvars,
+                                      binding_order, generations) || return false
+        end
+        return true
+    elseif a isa Union
+        b isa Union || return false
+        return _older_replaced_signature(getfield(a, :a), getfield(b, :a), a_tvars, b_tvars,
+                                         binding_order, generations) &&
+               _older_replaced_signature(getfield(a, :b), getfield(b, :b), a_tvars, b_tvars,
+                                         binding_order, generations)
+    elseif a isa Core.TypeofVararg
+        b isa Core.TypeofVararg || return false
+        for field in (:T, :N)
+            isdefined(a, field) == isdefined(b, field) || return false
+            isdefined(a, field) || continue
+            _older_replaced_signature(getfield(a, field), getfield(b, field), a_tvars, b_tvars,
+                                      binding_order, generations) || return false
+        end
+        return true
+    elseif (a isa TypeEq || a isa Core.TypeEgal) && (b isa TypeEq || b isa Core.TypeEgal)
+        return _older_replaced_signature(type_parameter(a), type_parameter(b), a_tvars, b_tvars,
+                                         binding_order, generations)
+    end
+    return false
+end
+
+function _older_replaced_signature(@nospecialize(a), @nospecialize(b),
+                                   generations::IdDict{Core.TypeName,UInt})
+    binding_order = Ref(0)
+    return _older_replaced_signature(a, b, TypeVar[], TypeVar[], binding_order, generations) &&
+           binding_order[] < 0
+end
+
 function show_method_candidates(io::IO, ex::MethodError, kwargs=[])
     @nospecialize io
     is_arg_types = !isa(ex.args, Tuple)
@@ -662,6 +766,7 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs=[])
     f = ex.f
     lines = String[]
     line_score = Int[]
+    candidate_sigs = Any[]
     # These functions are special cased to only show if first argument is matched.
     special = f === convert || f === getindex || f === setindex!
     f isa Core.Builtin && return # `methods` isn't very useful for a builtin
@@ -838,10 +943,26 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs=[])
             print_module_path_file(iob, m, string(file), line; modulecolor, digit_align_width = 3)
             push!(lines, takestring!(buf))
             push!(line_score, -(right_matches * 2 + (length(arg_types_param) < 2 ? 1 : 0)))
+            push!(candidate_sigs, method.sig)
         end
     end
 
     if !isempty(lines) # Display up to three closest candidates
+        dominated = falses(length(lines))
+        generations = IdDict{Core.TypeName,UInt}()
+        if any(line -> occursin("@world(", line), lines)
+            for i in eachindex(lines)
+                _has_old_type_binding(candidate_sigs[i], generations) || continue
+                for j in eachindex(lines)
+                    # Preserve an older signature when it better matches an old value.
+                    line_score[j] <= line_score[i] || continue
+                    if _older_replaced_signature(candidate_sigs[i], candidate_sigs[j], generations)
+                        dominated[i] = true
+                        break
+                    end
+                end
+            end
+        end
         Base.with_output_color(:normal, io) do io
             if show_constructor_hint
                 print(io, "\n\nHint: constructors are defined for `", f.name.wrapper,
@@ -849,16 +970,16 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs=[])
             else
                 print(io, "\n\nClosest candidates are:")
             end
-            permute!(lines, sortperm(line_score))
             i = 0
-            for line in lines
+            for line_idx in sortperm(line_score)
+                dominated[line_idx] && continue
                 println(io)
                 if i >= 3
                     print(io, "  ...")
                     break
                 end
                 i += 1
-                print(io, line)
+                print(io, lines[line_idx])
             end
             println(io) # extra newline for spacing to stacktrace
         end

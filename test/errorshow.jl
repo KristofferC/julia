@@ -141,6 +141,38 @@ Base.show_method_candidates(buf, MethodError(method_c5,(Float64,)))
 Base.show_method_candidates(buf, MethodError(method_c5,(Int32,)))
 @test occursin("\nClosest candidates are:\n  method_c5(::Type{!Matched{Float64}})$cmod$cfile$c5line", String(take!(buf)))
 
+# Replaced type signatures do not crowd out other method candidates (#58419).
+module Issue58419
+candidate(::Int, ::Int) = 0
+struct Replaced end
+old = Replaced()
+candidate(::Replaced, ::Int) = 1
+parametric(::Pair{Replaced,Union{T,Nothing}}, ::Vararg{T}) where {T} = 1
+for i in 2:5
+    Base.delete_binding(@__MODULE__, :Replaced)
+    @eval struct Replaced end
+    @eval candidate(::Replaced, ::Int) = $i
+    @eval parametric(::Pair{Replaced,Union{T,Nothing}}, ::Vararg{T}) where {T} = $i
+end
+# Make the method for the oldest type newer than the method for the current type.
+candidate(::typeof(old), ::Int) = 6
+end
+
+@testset "replaced types in method candidates" begin
+    Base.show_method_candidates(buf, MethodError(Issue58419.candidate, (1.0, 1.0)))
+    candidates = String(take!(buf))
+    @test !occursin("@world", candidates)
+    @test occursin("Issue58419.Replaced", candidates)
+    @test occursin("!Matched::Int64, !Matched::Int64", candidates)
+
+    Base.show_method_candidates(buf, MethodError(Issue58419.parametric, (1.0,)))
+    @test !occursin("@world", String(take!(buf)))
+
+    Base.show_method_candidates(buf, MethodError(Issue58419.candidate, (Issue58419.old, 1.0)))
+    candidates = String(take!(buf))
+    @test occursin("::@world", candidates)
+end
+
 module Issue41061
     struct InnerT{T,N} end
     export AliasT
