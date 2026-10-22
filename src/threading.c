@@ -46,6 +46,7 @@ extern "C" {
 #endif
 
 #include "threading.h"
+#include "gc-alloc-profiler.h"
 
 JL_DLLEXPORT _Atomic(uint8_t) jl_measure_compile_time_enabled = 0;
 JL_DLLEXPORT _Atomic(uint64_t) jl_cumulative_compile_time = 0;
@@ -418,6 +419,7 @@ jl_ptls_t jl_init_threadtls(int16_t tid)
         jl_atomic_store_release(&jl_n_threads, tid + 1);
     jl_fence();
     uv_mutex_unlock(&tls_lock);
+    jl_init_thread_alloc_profile_flag(ptls);
 
 #if !defined(_OS_WINDOWS_) && !defined(JL_DISABLE_LIBUNWIND) && !defined(LLVMLIBUNWIND)
     // ensures libunwind TLS space for this thread is allocated eagerly

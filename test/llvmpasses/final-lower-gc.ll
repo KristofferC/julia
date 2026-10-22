@@ -58,7 +58,21 @@ top:
   %pgcstack = call {}*** @julia.get_pgcstack()
   %ptls = call {}*** @julia.ptls_states()
   %ptls_i8 = bitcast {}*** %ptls to i8*
-; OPAQUE: %v = call noalias nonnull align {{[0-9]+}} dereferenceable({{[0-9]+}}) ptr addrspace(10) @ijl_gc_small_alloc
+; Small allocations pop the pool's freelist or bump its newpages cursor inline,
+; and call into the runtime otherwise.
+; CHECK: load volatile i64, ptr %safepoint
+; CHECK: %alloc_profile = load atomic i8
+; CHECK: %freelist = load atomic ptr
+; CHECK: pool_alloc.newpages_bump:
+; CHECK-NOT: store
+; CHECK: br i1 {{.*}}, label %pool_alloc.slow, label %pool_alloc.fast
+; CHECK: pool_alloc.fast:
+; CHECK: store atomic ptr %pool_alloc.next, ptr %pool_alloc.slot monotonic
+; CHECK: %nalloc = load atomic i64
+; CHECK: pool_alloc.slow:
+; OPAQUE-NEXT: call noalias nonnull align {{[0-9]+}} dereferenceable({{[0-9]+}}) ptr addrspace(10) @ijl_gc_small_alloc(
+; CHECK: pool_alloc.cont:
+; OPAQUE-NEXT: %v = phi ptr addrspace(10)
   %v = call {} addrspace(10)* @julia.gc_alloc_bytes(i8* %ptls_i8, i64 8, i64 12341234)
   %0 = bitcast {} addrspace(10)* %v to {} addrspace(10)* addrspace(10)*
   %1 = getelementptr {} addrspace(10)*, {} addrspace(10)* addrspace(10)* %0, i64 -1
@@ -81,15 +95,23 @@ top:
 }
 
 ; Allocation sites annotated by CancellationLowering (they may execute with
-; a cancellation reset region published) lower to the reset-safe entry
-; points, which unpublish/republish the region themselves.
+; a cancellation reset region published) call the reset-safe entry points,
+; which unpublish/republish the region themselves.
 define {} addrspace(10)* @gc_alloc_lowering_reset_region() {
 top:
 ; CHECK-LABEL: @gc_alloc_lowering_reset_region
   %pgcstack = call {}*** @julia.get_pgcstack()
   %ptls = call {}*** @julia.ptls_states()
   %ptls_i8 = bitcast {}*** %ptls to i8*
-; OPAQUE: %v = call noalias nonnull align {{[0-9]+}} dereferenceable({{[0-9]+}}) ptr addrspace(10) @ijl_gc_small_alloc_reset_safe
+; The inline fast path stays, but a cell bumped from newpages is tagged before the
+; bump is committed, so a delivered reset never leaves an untagged cell behind.
+; CHECK: pool_alloc.newpages_tag:
+; CHECK-NEXT: store i64 12341234, ptr %newpages
+; CHECK-NEXT: fence syncscope("singlethread") release
+; CHECK: pool_alloc.fast:
+; CHECK: store atomic ptr %pool_alloc.next, ptr %pool_alloc.slot monotonic
+; CHECK: pool_alloc.slow:
+; OPAQUE-NEXT: call noalias nonnull align {{[0-9]+}} dereferenceable({{[0-9]+}}) ptr addrspace(10) @ijl_gc_small_alloc_reset_safe(
   %v = call {} addrspace(10)* @julia.gc_alloc_bytes(i8* %ptls_i8, i64 8, i64 12341234), !julia.reset_region !3
   %0 = bitcast {} addrspace(10)* %v to {} addrspace(10)* addrspace(10)*
   %1 = getelementptr {} addrspace(10)*, {} addrspace(10)* addrspace(10)* %0, i64 -1

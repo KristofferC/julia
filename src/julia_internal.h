@@ -536,6 +536,8 @@ jl_value_t *jl_gc_small_alloc_noinline(jl_ptls_t ptls, int offset,
                                    int osize) JL_CANSAFEPOINT;
 jl_value_t *jl_gc_big_alloc_noinline(jl_ptls_t ptls, size_t allocsz) JL_CANSAFEPOINT;
 JL_DLLEXPORT int jl_gc_classify_pools(size_t sz, int *osize) JL_NOTSAFEPOINT;
+// log2 of the pool page size, for the inline pool allocation fast path emitted by codegen
+JL_DLLEXPORT int jl_gc_pool_page_lg2(void) JL_NOTSAFEPOINT;
 extern arraylist_t image_remset;
 extern jl_mutex_t image_remset_lock;
 

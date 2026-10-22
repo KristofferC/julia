@@ -1,9 +1,12 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-# RUN: julia --startup-file=no -O2 --check-bounds=yes %s %t -O && llvm-link -S %t/* | FileCheck %s
-# RUN: julia --startup-file=no -O3 --check-bounds=yes %s %t -O && llvm-link -S %t/* | FileCheck %s
+# RUN: env JULIA_INLINE_POOL_ALLOC=0 julia --startup-file=no -O2 --check-bounds=yes %s %t -O && llvm-link -S %t/* | FileCheck %s
+# RUN: env JULIA_INLINE_POOL_ALLOC=0 julia --startup-file=no -O3 --check-bounds=yes %s %t -O && llvm-link -S %t/* | FileCheck %s
 
 include(joinpath("..", "testhelpers", "llvmpasses.jl"))
+
+# COM: The inline pool allocation fast path would add allocation-shaped control flow
+# COM: to the output; these checks are about the optimizations before it.
 
 # COM: This tests that simplifycfg is still hoisting allocations in different basic blocks
 # COM: into the parent basic block, and deduplicating them in the process

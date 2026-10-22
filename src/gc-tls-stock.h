@@ -17,6 +17,9 @@ extern "C" {
 typedef struct {
     struct _jl_taggedvalue_t *freelist; // root of list of free objects
     struct _jl_taggedvalue_t *newpages; // root of list of chunks of free objects
+    // objects allocated from this pool not yet folded into the thread's `gc_num`
+    // counters (see `gc_flush_pool_counts`), so the allocation fast path bumps one counter
+    _Atomic(int64_t) nalloc;
     uint16_t osize; // size of objects in this pool
 } jl_gc_pool_t;
 

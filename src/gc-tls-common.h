@@ -51,6 +51,9 @@ typedef struct {
 typedef struct {
     jl_thread_heap_common_t heap;
     jl_thread_gc_num_common_t gc_num;
+    // set while an allocation profile is running: inline allocation fast paths
+    // emitted by codegen defer to the runtime while it is set
+    _Atomic(int8_t) alloc_profile_enabled;
 } jl_gc_tls_states_common_t;
 
 #ifdef __cplusplus

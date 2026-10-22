@@ -675,6 +675,40 @@ void jl_gc_count_allocd(size_t sz) JL_NOTSAFEPOINT
 }
 
 // Only safe to update the heap inside the GC
+// Pool allocations are only counted per pool (`p->nalloc`). Sum the counts not yet
+// folded into `ptls`'s `gc_num` counters, as a number of objects and of bytes.
+static void gc_unflushed_pool_counts(jl_ptls_t ptls, int64_t *count, int64_t *bytes) JL_NOTSAFEPOINT
+{
+    int64_t n = 0, b = 0;
+    for (int i = 0; i < JL_GC_N_POOLS; i++) {
+        jl_gc_pool_t *p = &ptls->gc_tls.heap.norm_pools[i];
+        int64_t ni = jl_atomic_load_relaxed(&p->nalloc);
+        n += ni;
+        b += ni * p->osize;
+    }
+    *count = n;
+    *bytes = b;
+}
+
+// Fold the per-pool counts into `allocd`, `pool_live_bytes` and `poolalloc`. Only call
+// this while no other thread can allocate or read the counters (during a collection or
+// startup): the transfer is not atomic.
+static void gc_flush_pool_counts(jl_ptls_t ptls) JL_NOTSAFEPOINT
+{
+    int64_t count, bytes;
+    gc_unflushed_pool_counts(ptls, &count, &bytes);
+    if (count == 0)
+        return;
+    for (int i = 0; i < JL_GC_N_POOLS; i++)
+        jl_atomic_store_relaxed(&ptls->gc_tls.heap.norm_pools[i].nalloc, 0);
+    jl_atomic_store_relaxed(&ptls->gc_tls_common.gc_num.allocd,
+        jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.allocd) + bytes);
+    jl_atomic_store_relaxed(&ptls->gc_tls_common.gc_num.pool_live_bytes,
+        jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.pool_live_bytes) + bytes);
+    jl_atomic_store_relaxed(&ptls->gc_tls_common.gc_num.poolalloc,
+        jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.poolalloc) + count);
+}
+
 static void combine_thread_gc_counts(jl_gc_num_t *dest, int update_heap) JL_NOTSAFEPOINT
 {
     int gc_n_threads;
@@ -686,10 +720,12 @@ static void combine_thread_gc_counts(jl_gc_num_t *dest, int update_heap) JL_NOTS
         if (ptls == NULL) {
             continue;
         }
-        dest->allocd += (jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.allocd) + gc_num.interval);
+        int64_t pool_count, pool_bytes;
+        gc_unflushed_pool_counts(ptls, &pool_count, &pool_bytes);
+        dest->allocd += (jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.allocd) + pool_bytes + gc_num.interval);
         dest->malloc += jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.malloc);
         dest->realloc += jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.realloc);
-        dest->poolalloc += jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.poolalloc);
+        dest->poolalloc += jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.poolalloc) + pool_count;
         dest->bigalloc += jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.bigalloc);
         dest->freed += jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.free_acc);
         if (update_heap) {
@@ -726,6 +762,12 @@ static void reset_thread_gc_counts(void) JL_NOTSAFEPOINT
 
 void jl_gc_reset_alloc_count(void)
 {
+    int n_threads = jl_atomic_load_acquire(&jl_n_threads);
+    jl_ptls_t *all_tls_states = jl_atomic_load_relaxed(&jl_all_tls_states);
+    for (int i = 0; i < n_threads; i++) {
+        if (all_tls_states[i] != NULL)
+            gc_flush_pool_counts(all_tls_states[i]);
+    }
     combine_thread_gc_counts(&gc_num, 0);
     int64_t alloc_increment = gc_num.deferred_alloc + gc_num.allocd;
     jl_timing_counter_inc(JL_TIMING_COUNTER_HeapSize, alloc_increment);
@@ -837,12 +879,7 @@ STATIC_INLINE jl_value_t *jl_gc_small_alloc_inner(jl_ptls_t ptls, int offset,
     return jl_gc_big_alloc(ptls, osize, NULL);
 #endif
     maybe_collect(ptls);
-    jl_atomic_store_relaxed(&ptls->gc_tls_common.gc_num.allocd,
-        jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.allocd) + osize);
-    jl_atomic_store_relaxed(&ptls->gc_tls_common.gc_num.pool_live_bytes,
-        jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.pool_live_bytes) + osize);
-    jl_atomic_store_relaxed(&ptls->gc_tls_common.gc_num.poolalloc,
-        jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.poolalloc) + 1);
+    jl_atomic_store_relaxed(&p->nalloc, jl_atomic_load_relaxed(&p->nalloc) + 1);
     // first try to use the freelist
     jl_taggedvalue_t *v = p->freelist;
     if (v != NULL) {
@@ -928,6 +965,11 @@ int jl_gc_classify_pools(size_t sz, int *osize)
     int klass = jl_gc_szclass(allocsz);
     *osize = jl_gc_sizeclasses[klass];
     return (int)(intptr_t)(&((jl_ptls_t)0)->gc_tls.heap.norm_pools[klass]);
+}
+
+int jl_gc_pool_page_lg2(void)
+{
+    return GC_PAGE_LG2;
 }
 
 // sweep phase
@@ -1545,6 +1587,8 @@ static void gc_sweep_pool(void) JL_NOTSAFEPOINT
             }
             continue;
         }
+        // the sweep recounts every live pool object, including any not yet flushed
+        gc_flush_pool_counts(ptls2);
         jl_atomic_store_relaxed(&ptls2->gc_tls_common.gc_num.pool_live_bytes, 0);
         for (int i = 0; i < JL_GC_N_POOLS; i++) {
             jl_gc_pool_t *p = &ptls2->gc_tls.heap.norm_pools[i];
@@ -3256,7 +3300,9 @@ JL_DLLEXPORT int64_t jl_gc_pool_live_bytes(void)
     for (int i = 0; i < n_threads; i++) {
         jl_ptls_t ptls2 = all_tls_states[i];
         if (ptls2 != NULL) {
-            pool_live_bytes += jl_atomic_load_relaxed(&ptls2->gc_tls_common.gc_num.pool_live_bytes);
+            int64_t pool_count, pool_bytes;
+            gc_unflushed_pool_counts(ptls2, &pool_count, &pool_bytes);
+            pool_live_bytes += jl_atomic_load_relaxed(&ptls2->gc_tls_common.gc_num.pool_live_bytes) + pool_bytes;
         }
     }
     return pool_live_bytes;
@@ -3324,6 +3370,10 @@ static void _report_gc_finished(uint64_t pause, uint64_t freed, int full, int re
 // Only one thread should be running in this function
 static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection) JL_NOTSAFEPOINT
 {
+    for (int i = 0; i < gc_n_threads; i++) {
+        if (gc_all_tls_states[i] != NULL)
+            gc_flush_pool_counts(gc_all_tls_states[i]);
+    }
     combine_thread_gc_counts(&gc_num, 1);
 
     // We separate the update of the graph from the update of live_bytes here
@@ -3790,6 +3840,7 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection)
     jl_task_t *ct = jl_current_task;
     jl_ptls_t ptls = ct->ptls;
     if (jl_atomic_load_acquire(&jl_gc_disable_counter)) {
+        // per-pool counts stay unflushed (readers add them) until the next collection
         size_t localbytes = jl_atomic_load_relaxed(&ptls->gc_tls_common.gc_num.allocd) + gc_num.interval;
         jl_atomic_store_relaxed(&ptls->gc_tls_common.gc_num.allocd, -(int64_t)gc_num.interval);
         static_assert(sizeof(_Atomic(uint64_t)) == sizeof(gc_num.deferred_alloc), "");
@@ -3909,6 +3960,7 @@ void jl_init_thread_heap(jl_ptls_t ptls)
         p[i].osize = jl_gc_sizeclasses[i];
         p[i].freelist = NULL;
         p[i].newpages = NULL;
+        jl_atomic_store_relaxed(&p[i].nalloc, 0);
     }
     small_arraylist_new(&common_heap->weak_refs, 0);
     small_arraylist_new(&common_heap->weak_processing_list, 0);

@@ -2,6 +2,7 @@
 
 #include "gc-alloc-profiler.h"
 #include "julia_internal.h"
+#include "threading.h"
 
 #include <string.h>
 
@@ -231,6 +232,38 @@ static jl_raw_backtrace_t get_raw_backtrace(jl_bt_arena_t *arena) JL_NOTSAFEPOIN
     return result;
 }
 
+// Whether a profile is running. Unlike `g_alloc_profile_enabled` this is not cleared while
+// recording is suspended. Mirrored into every thread's `alloc_profile_enabled`, which the
+// inline allocation fast paths emitted by codegen check.
+static _Atomic(int8_t) g_alloc_profile_active = 0;
+
+static void set_thread_alloc_profile_flags(int8_t active) JL_NOTSAFEPOINT
+{
+    jl_atomic_store_relaxed(&g_alloc_profile_active, active);
+    // pairs with the fences in `jl_init_thread_alloc_profile_flag` and `jl_init_threadtls`
+    jl_fence();
+    int nthreads = jl_atomic_load_acquire(&jl_n_threads);
+    jl_ptls_t *allstates = jl_atomic_load_relaxed(&jl_all_tls_states);
+    for (int i = 0; i < nthreads; i++) {
+        jl_ptls_t ptls2 = allstates[i];
+        if (ptls2 != NULL)
+            jl_atomic_store_relaxed(&ptls2->gc_tls_common.alloc_profile_enabled, active);
+    }
+}
+
+// Called by a new thread after publishing its `ptls`. Either the final load below sees a
+// concurrent `set_thread_alloc_profile_flags`, or that call sees `ptls` and its store to
+// the flag is ordered after ours.
+void jl_init_thread_alloc_profile_flag(jl_ptls_t ptls) JL_NOTSAFEPOINT
+{
+    int8_t active;
+    do {
+        active = jl_atomic_load_relaxed(&g_alloc_profile_active);
+        jl_atomic_store_relaxed(&ptls->gc_tls_common.alloc_profile_enabled, active);
+        jl_fence();
+    } while (jl_atomic_load_relaxed(&g_alloc_profile_active) != active);
+}
+
 // == exported interface ==
 
 JL_DLLEXPORT void jl_start_alloc_profile(double sample_rate)
@@ -257,6 +290,7 @@ JL_DLLEXPORT void jl_start_alloc_profile(double sample_rate)
                          (uint64_t)(sample_rate * (double)UINT64_MAX);
     jl_atomic_store_relaxed(&g_alloc_profile.sample_threshold, threshold);
     jl_atomic_store_release(&g_alloc_profile_enabled, 1);
+    set_thread_alloc_profile_flags(1);
 }
 
 JL_DLLEXPORT jl_profile_allocs_raw_results_t jl_fetch_alloc_profile(void)
@@ -290,6 +324,7 @@ JL_DLLEXPORT void jl_stop_alloc_profile(void)
     // after this returns, no thread is mid-record and none can start recording,
     // so the profile arrays are safe to read and free
     suspend_recording();
+    set_thread_alloc_profile_flags(0);
 }
 
 JL_DLLEXPORT int jl_alloc_profile_is_running(void)
