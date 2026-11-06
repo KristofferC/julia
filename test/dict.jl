@@ -1137,6 +1137,11 @@ Dict(1 => rand(2,3), 'c' => "asdf") # just make sure this does not trigger a dep
     @test wkd == WeakKeyDict(A=>2, B=>3, C=>4)
     @test get!(()->5, wkd, [1.0]) == 2
 
+    # live keys must not keep the dict alive
+    wr = (@noinline () -> WeakRef(WeakKeyDict(A=>1)))()
+    GC.gc(); GC.gc()
+    @test wr.value === nothing
+
     GC.@preserve A B C D nothing
 end
 
@@ -1231,6 +1236,11 @@ end
     if kref.value === nothing
         @test !haskey(widgc, [99]) # (an egal key never matched anyway: identity keying)
     end
+
+    # live values must not keep the dict alive
+    wr = (@noinline () -> WeakRef(Base.WeakValueIdDict(A=>a)))()
+    GC.gc(); GC.gc()
+    @test wr.value === nothing
 
     # nothing is not a valid key or value
     @test !haskey(widgc, nothing)

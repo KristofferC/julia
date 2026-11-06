@@ -2,10 +2,17 @@
 
 # weak key and weak value dictionaries
 
+# holds the dict weakly so that live keys (whose finalizers reference this
+# object) do not keep the dict itself alive
 mutable struct WeakKeyDictFinalizer{T}
-    const d::T
+    const d::WeakRef
+    WeakKeyDictFinalizer(d::T) where {T} = new{T}(WeakRef(d))
 end
-(d::WeakKeyDictFinalizer)(k) = d.d.dirty = true
+function (f::WeakKeyDictFinalizer{T})(k) where {T}
+    d = f.d.value
+    d === nothing || ((d::T).dirty = true)
+    return nothing
+end
 
 
 """
@@ -25,7 +32,7 @@ mutable struct WeakKeyDict{K,V} <: AbstractDict{K,V}
     const ht::Dict{WeakRef,V}
     const lock::ReentrantLock
     dirty::Bool
-    finalizer::WeakKeyDictFinalizer
+    finalizer::WeakKeyDictFinalizer{WeakKeyDict{K,V}}
 
     # Constructors mirror Dict's
     function WeakKeyDict{K,V}() where {K, V}
@@ -217,10 +224,16 @@ filter!(f, d::WeakKeyDict) = filter_in_one_pass!(f, d)
 
 # weak identity dictionaries
 
+# holds the dict weakly so that live values do not keep the dict itself alive
 mutable struct WeakValueIdDictFinalizer{T}
-    const d::T
+    const d::WeakRef
+    WeakValueIdDictFinalizer(d::T) where {T} = new{T}(WeakRef(d))
 end
-(d::WeakValueIdDictFinalizer)(v) = d.d.dirty = true
+function (f::WeakValueIdDictFinalizer{T})(v) where {T}
+    d = f.d.value
+    d === nothing || ((d::T).dirty = true)
+    return nothing
+end
 
 """
     WeakValueIdDict
