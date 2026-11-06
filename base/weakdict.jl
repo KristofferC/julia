@@ -2,15 +2,13 @@
 
 # weak key and weak value dictionaries
 
-# holds the dict weakly so that live keys (whose finalizers reference this
-# object) do not keep the dict itself alive
-mutable struct WeakKeyDictFinalizer{T}
-    const d::WeakRef
-    WeakKeyDictFinalizer(d::T) where {T} = new{T}(WeakRef(d))
+# Shared cleanup state keeps working if the dict is recovered from another
+# finalizer, without keeping the dict alive through its entries' finalizers.
+mutable struct WeakDictFinalizer
+    dirty::Bool
 end
-function (f::WeakKeyDictFinalizer{T})(k) where {T}
-    d = f.d.value
-    d === nothing || ((d::T).dirty = true)
+function (f::WeakDictFinalizer)(_)
+    f.dirty = true
     return nothing
 end
 
@@ -31,14 +29,11 @@ See also [`WeakRef`](@ref).
 mutable struct WeakKeyDict{K,V} <: AbstractDict{K,V}
     const ht::Dict{WeakRef,V}
     const lock::ReentrantLock
-    dirty::Bool
-    finalizer::WeakKeyDictFinalizer{WeakKeyDict{K,V}}
+    const finalizer::WeakDictFinalizer
 
     # Constructors mirror Dict's
     function WeakKeyDict{K,V}() where {K, V}
-        t = new{K,V}(Dict{WeakRef,V}(), ReentrantLock(), false)
-        t.finalizer = WeakKeyDictFinalizer(t)
-        return t
+        return new{K,V}(Dict{WeakRef,V}(), ReentrantLock(), WeakDictFinalizer(false))
     end
 end
 function WeakKeyDict{K,V}(kv) where V where K
@@ -70,8 +65,8 @@ WeakKeyDict(ps::Pair...)                            = WeakKeyDict{Any,Any}(ps)
 WeakKeyDict(kv) = Base.dict_with_eltype((K, V) -> WeakKeyDict{K, V}, kv, eltype(kv))
 
 function _cleanup_locked(h::WeakKeyDict)
-    if h.dirty
-        h.dirty = false
+    if h.finalizer.dirty
+        h.finalizer.dirty = false
         idx = skip_deleted_floor!(h.ht)
         while idx != 0
             if h.ht.keys[idx].value === nothing
@@ -224,17 +219,6 @@ filter!(f, d::WeakKeyDict) = filter_in_one_pass!(f, d)
 
 # weak identity dictionaries
 
-# holds the dict weakly so that live values do not keep the dict itself alive
-mutable struct WeakValueIdDictFinalizer{T}
-    const d::WeakRef
-    WeakValueIdDictFinalizer(d::T) where {T} = new{T}(WeakRef(d))
-end
-function (f::WeakValueIdDictFinalizer{T})(v) where {T}
-    d = f.d.value
-    d === nothing || ((d::T).dirty = true)
-    return nothing
-end
-
 """
     WeakValueIdDict
 
@@ -250,15 +234,10 @@ See also [`WeakRef`](@ref).
 mutable struct WeakValueIdDict{K,V} <: AbstractDict{K,V}
     const ht::IdDict{K,WeakRef}
     const lock::ReentrantLock
-    dirty::Bool
-    # concretely typed (self-referentially) so that registering the finalizer
-    # remains statically resolvable, e.g. under `--trim`
-    finalizer::WeakValueIdDictFinalizer{WeakValueIdDict{K,V}}
+    const finalizer::WeakDictFinalizer
 
     function WeakValueIdDict{K,V}() where {K, V}
-        t = new{K,V}(IdDict{K,WeakRef}(), ReentrantLock(), false)
-        t.finalizer = WeakValueIdDictFinalizer(t)
-        return t
+        return new{K,V}(IdDict{K,WeakRef}(), ReentrantLock(), WeakDictFinalizer(false))
     end
 end
 function WeakValueIdDict{K,V}(kv) where V where K
@@ -291,7 +270,7 @@ WeakValueIdDict(kv) = dict_with_eltype((K, V) -> WeakValueIdDict{K, V}, kv, elty
 # an entry is live iff its value is; a dead entry is indistinguishable from an
 # absent one (its key stays pinned until the next sweep)
 function _sweep_locked(h::WeakValueIdDict{K}) where {K}
-    h.dirty = false
+    h.finalizer.dirty = false
     dead = K[]
     for (k, wr) in h.ht
         (wr::WeakRef).value === nothing && push!(dead, k)
@@ -301,7 +280,7 @@ function _sweep_locked(h::WeakValueIdDict{K}) where {K}
     end
     return h
 end
-_cleanup_locked(h::WeakValueIdDict) = h.dirty ? _sweep_locked(h) : h
+_cleanup_locked(h::WeakValueIdDict) = h.finalizer.dirty ? _sweep_locked(h) : h
 
 empty(d::WeakValueIdDict, ::Type{K}, ::Type{V}) where {K, V} = WeakValueIdDict{K, V}()
 
@@ -421,7 +400,7 @@ end
 function empty!(h::WeakValueIdDict)
     lock(h) do
         empty!(h.ht)
-        h.dirty = false
+        h.finalizer.dirty = false
     end
     return h
 end
