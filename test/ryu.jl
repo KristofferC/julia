@@ -932,4 +932,26 @@ end # exp
     @test stringcompact(eps(Float16(0.0))) == "6.0e-8"
 end
 
+@testset "printing without a temporary buffer" begin
+    io = IOBuffer()
+    for x in (1.0, -2.5f0, Float16(0.1), floatmax(Float64), -floatmin(Float64), 5.0e-324, NaN, -Inf32)
+        print(io, x, ' ')
+        show(io, x)
+        show(IOContext(io, :compact => true), x)
+        @test String(take!(io)) == string(x, ' ', repr(x), repr(x; context=:compact => true))
+    end
+    @test string(-floatmin(Float64)) == "-2.2250738585072014e-308" # the longest output
+    @test repr(-floatmin(Float16)) == "Float16(-6.104e-5)"
+    io = IOBuffer(; maxsize=5)
+    print(io, 3.14159)
+    @test String(take!(io)) == "3.141"
+    print_show(io, x) = (print(io, x); show(io, x))
+    io = IOBuffer()
+    for x in (3.14159, 2.5f0, Float16(0.1))
+        print_show(io, x) # compile, and make room in `io`
+        truncate(io, 0)
+        @test (@allocated print_show(io, x)) == 0
+    end
+end
+
 end # Ryu

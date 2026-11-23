@@ -125,21 +125,47 @@ function writeexp(x::T,
     return String(resize!(buf, pos - 1))
 end
 
+# Raw memory as an `AbstractVector{UInt8}`, so the writers can fill a stack buffer.
+# Only valid inside the `GC.@preserve` of whatever owns the memory.
+struct UnsafeBuf <: AbstractVector{UInt8}
+    ptr::Ptr{UInt8}
+    len::Int
+end
+Base.size(b::UnsafeBuf) = (b.len,)
+Base.unsafe_convert(::Type{Ptr{UInt8}}, b::UnsafeBuf) = b.ptr
+Base.@propagate_inbounds function Base.getindex(b::UnsafeBuf, i::Int)
+    @boundscheck checkbounds(b, i)
+    return unsafe_load(b.ptr, i)
+end
+Base.@propagate_inbounds function Base.setindex!(b::UnsafeBuf, v, i::Int)
+    @boundscheck checkbounds(b, i)
+    unsafe_store!(b.ptr, convert(UInt8, v), i)
+    return b
+end
+
 function Base.show(io::IO, x::T, forceuntyped::Bool=false, fromprint::Bool=false) where {T <: Base.IEEEFloat}
     compact = get(io, :compact, false)::Bool
-    buf = Memory{UInt8}(undef, neededfloatdigits(T))
     typed = !forceuntyped && !compact && Base.nonnothing_nonmissing_typeinfo(io) !== typeof(x)
-    pos = writeshortest(buf, 1, x, false, false, true, -1,
-        (x isa Float32 && !fromprint) ? UInt8('f') : UInt8('e'), false, UInt8('.'), typed, compact)
-    write(io, view(buf, 1:pos - 1))
+    N = neededfloatdigits(T)
+    buf = Ref{NTuple{N,UInt8}}()
+    GC.@preserve buf begin
+        p = Ptr{UInt8}(Base.unsafe_convert(Ptr{NTuple{N,UInt8}}, buf))
+        pos = writeshortest(UnsafeBuf(p, N), 1, x, false, false, true, -1,
+            (x isa Float32 && !fromprint) ? UInt8('f') : UInt8('e'), false, UInt8('.'), typed, compact)
+        unsafe_write(io, p, (pos - 1) % UInt)
+    end
     return
 end
 
 function Base.string(x::T) where {T <: Base.IEEEFloat}
-    buf = Base.StringVector(neededfloatdigits(T))
-    pos = writeshortest(buf, 1, x, false, false, true, -1,
-        UInt8('e'), false, UInt8('.'), false, false)
-    return String(resize!(buf, pos - 1))
+    N = neededfloatdigits(T)
+    buf = Ref{NTuple{N,UInt8}}()
+    GC.@preserve buf begin
+        p = Ptr{UInt8}(Base.unsafe_convert(Ptr{NTuple{N,UInt8}}, buf))
+        pos = writeshortest(UnsafeBuf(p, N), 1, x, false, false, true, -1,
+            UInt8('e'), false, UInt8('.'), false, false)
+        return unsafe_string(p, pos - 1)
+    end
 end
 
 Base.print(io::IO, x::Union{Float16, Float32}) = show(io, x, true, true)
