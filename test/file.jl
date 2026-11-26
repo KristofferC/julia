@@ -381,6 +381,40 @@ function mktempfile(; cleanup=true)
     return file
 end
 
+# Subset cleanup must preserve unrelated entries, even those eligible for immediate cleanup.
+@testset "mktemp/dir subset cleanup" begin
+    with_temp_cleanup(64) do
+        fs = Base.Filesystem
+        outer = mktempdir()
+        outer_file = mktempfile()
+        pending = mktempdir(cleanup=false)
+        fs.temp_cleanup_later(pending; asap=true)
+        stale = tempname()
+        unregistered = mktempdir(cleanup=false)
+        try
+            directory = mktempdir(outer)
+            touch(joinpath(directory, "child"))
+            file = mktempfile()
+            missing = tempname()
+            original = copy(TEMP_CLEANUP)
+            fs.temp_cleanup_purge_all(Set{String}())
+            @test TEMP_CLEANUP == original
+            @test all(ispath, (directory, file, pending))
+
+            selected = Set([directory, file, missing, unregistered])
+            fs.temp_cleanup_purge_all(selected)
+            @test all(!ispath, (directory, file, missing))
+            @test all(p -> !haskey(TEMP_CLEANUP, p), selected)
+            @test all(ispath, (outer, outer_file, pending, unregistered))
+            @test TEMP_CLEANUP == Dict(p => flag for (p, flag) in original if p ∉ selected)
+            @test haskey(TEMP_CLEANUP, stale)
+            @test_logs fs.temp_cleanup_purge_all(selected)
+        finally
+            rm(unregistered; recursive=true, force=true)
+        end
+    end
+end
+
 @testset "mktemp/dir cleanup list purging" begin
     n = 12 # cleanup min & max
     @assert n % 2 == n % 3 == 0 # otherwise tests won't work

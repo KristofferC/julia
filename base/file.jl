@@ -687,8 +687,9 @@ function temp_cleanup_forget(path::AbstractString)
     nothing
 end
 
-function temp_cleanup_purge_prelocked(force::Bool)
+function temp_cleanup_purge_prelocked(force::Bool, paths=nothing)
     filter!(TEMP_CLEANUP) do (path, asap)
+        paths === nothing || path in paths || return true
         try
             ispath(path) || return false
             if force || asap
@@ -708,9 +709,18 @@ function temp_cleanup_purge_prelocked(force::Bool)
     nothing
 end
 
-function temp_cleanup_purge_all()
+"""
+    temp_cleanup_purge_all([paths])
+
+Remove registered temporary paths, regardless of their `asap` flag. If `paths`
+is supplied, only entries in that collection are considered; other registry
+entries are left unchanged. Directories are removed recursively. Paths that
+cannot be removed remain registered for a later cleanup attempt.
+"""
+function temp_cleanup_purge_all(paths=nothing)
     may_need_gc = Ref(false)
     @lock TEMP_CLEANUP_LOCK filter!(TEMP_CLEANUP) do (path, _)
+        paths === nothing || path in paths || return true
         try
             ispath(path) || return false
             may_need_gc[] = true
@@ -724,7 +734,7 @@ function temp_cleanup_purge_all()
         # this is only usually required on Sys.iswindows(), but may as well do it everywhere
         GC.gc(true)
     end
-    @lock TEMP_CLEANUP_LOCK temp_cleanup_purge_prelocked(true)
+    @lock TEMP_CLEANUP_LOCK temp_cleanup_purge_prelocked(true, paths)
     nothing
 end
 

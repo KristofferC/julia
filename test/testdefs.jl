@@ -8,18 +8,11 @@ function cleanup_test_tempfiles(name, original_paths)
     fs = Base.Filesystem
     paths = @lock fs.TEMP_CLEANUP_LOCK setdiff(keys(fs.TEMP_CLEANUP), original_paths)
     isempty(paths) && return
-    # Release open handles before attempting deletion, particularly on Windows.
-    any(ispath, paths) && GC.gc(true)
-    @lock fs.TEMP_CLEANUP_LOCK begin
-        leftovers = filter(ispath, paths)
-        if !isempty(leftovers)
-            @warn "Test set left temporary paths behind" testset_name=name paths=leftovers
-        end
-        for path in paths
-            haskey(fs.TEMP_CLEANUP, path) && (fs.TEMP_CLEANUP[path] = true)
-        end
-        fs.temp_cleanup_purge_prelocked(false)
+    leftovers = filter(ispath, paths)
+    if !isempty(leftovers)
+        @warn "Test set left temporary paths behind" testset_name=name paths=leftovers
     end
+    fs.temp_cleanup_purge_all(Set(paths))
     return nothing
 end
 
